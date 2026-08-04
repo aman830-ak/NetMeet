@@ -4,7 +4,6 @@ import { io } from 'socket.io-client';
 import { useUser } from '@clerk/clerk-react';
 import Peer from 'simple-peer';
 
-// FIX: This line was missing! It creates the actual Context we export at the bottom.
 const SocketContext = createContext();
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:4000';
@@ -17,17 +16,19 @@ const ContextProvider = ({ children }) => {
   const [stream, setStream] = useState(null);
   const [remoteStream, setRemoteStream] = useState(null);
   
-  // Initialize state with exact socket values to prevent hot-reload bugs
   const [me, setMe] = useState(socket.id || '');
   const [isConnected, setIsConnected] = useState(socket.connected || false);
   
   const [call, setCall] = useState({});
   const [callAccepted, setCallAccepted] = useState(false);
   const [callEnded, setCallEnded] = useState(false);
+  
+  // NEW: State for tracking outgoing calls (Bug 3 Fix)
+  const [isCalling, setIsCalling] = useState(false);
 
   const [isAudioMuted, setIsAudioMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
-  const [cameraError, setCameraError] = useState(false); // Track camera errors
+  const [cameraError, setCameraError] = useState(false);
   
   const myVideo = useRef();
   const userVideo = useRef();
@@ -50,7 +51,10 @@ const ContextProvider = ({ children }) => {
     socket.on('me', (id) => setMe(id));
     socket.on('disconnect', () => setIsConnected(false));
 
-    navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+    navigator.mediaDevices.getUserMedia({ 
+    video: { facingMode: "user" }, // explicitly requests the front-facing mobile camera
+    audio: true 
+      })
       .then((currentStream) => {
         if (!isMounted) {
           currentStream.getTracks().forEach(track => track.stop());
@@ -69,12 +73,26 @@ const ContextProvider = ({ children }) => {
       setCall({ isReceivedCall: true, from, name: callerName, signal });
     });
 
+    // FIX: Moved this BEFORE the return statement so it actually runs!
+    socket.on('callEnded', () => {
+      setCallEnded(true);
+      setCallAccepted(false);
+      setIsCalling(false); // Reset calling state if they hang up
+      setRemoteStream(null);
+      if (connectionRef.current) {
+        connectionRef.current.destroy();
+      }
+      alert("The other participant has left the call.");
+      window.location.reload(); // Resets the room UI smoothly
+    });
+
     return () => {
       isMounted = false; 
       socket.off('connect');
       socket.off('me');
       socket.off('disconnect');
       socket.off('callUser');
+      socket.off('callEnded'); // Clean up our new listener
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
       }
@@ -108,6 +126,9 @@ const ContextProvider = ({ children }) => {
       return;
     }
 
+    // Set calling state so the UI shows "Calling..."
+    setIsCalling(true);
+
     const peer = new Peer({ 
       initiator: true, 
       trickle: false, 
@@ -124,6 +145,7 @@ const ContextProvider = ({ children }) => {
     });
 
     socket.on('callAccepted', (signal) => {
+      setIsCalling(false); // Clear calling indicator
       setCallAccepted(true);
       peer.signal(signal);
     });
@@ -132,8 +154,17 @@ const ContextProvider = ({ children }) => {
   };
 
   const leaveCall = () => {
+    setIsCalling(false); // Clear calling state if we cancel
     setCallEnded(true);
+    
+    // Notify partner that we are leaving
+    const recipient = call.from || call.to;
+    if (recipient) {
+      socket.emit("endCall", { to: recipient });
+    }
+
     setRemoteStream(null);
+    setCallAccepted(false);
     if (connectionRef.current) connectionRef.current.destroy();
     window.location.href = '/'; 
   };
@@ -160,24 +191,37 @@ const ContextProvider = ({ children }) => {
       const screenTrack = screenStream.getVideoTracks()[0];
       const cameraTrack = stream.getVideoTracks()[0];
 
+      // 1. Update local video preview for yourself
       stream.removeTrack(cameraTrack);
       stream.addTrack(screenTrack);
       if (myVideo.current) myVideo.current.srcObject = stream;
 
+      // 2. FIX: Replace the track on the live WebRTC connection so the REMOTE user sees it
+      if (connectionRef.current) {
+        connectionRef.current.replaceTrack(cameraTrack, screenTrack, stream);
+      }
+
+      // Handle when user stops sharing via the browser's "Stop sharing" bar
       screenTrack.onended = () => {
+        // Swap back locally
         stream.removeTrack(screenTrack);
         stream.addTrack(cameraTrack);
         if (myVideo.current) myVideo.current.srcObject = stream;
+
+        // Replace back on the WebRTC peer connection
+        if (connectionRef.current) {
+          connectionRef.current.replaceTrack(screenTrack, cameraTrack, stream);
+        }
       };
     } catch (error) {
-      console.log("Screen sharing cancelled", error);
+      console.log("Screen sharing cancelled or failed:", error);
     }
   };
 
   return (
     <SocketContext.Provider value={{ 
       stream, remoteStream, myVideo, userVideo, me, user, socket, isConnected, cameraError,
-      call, callAccepted, callEnded, callUser, answerCall, leaveCall,
+      call, callAccepted, callEnded, isCalling, callUser, answerCall, leaveCall, // isCalling exported here!
       toggleAudio, toggleVideo, shareScreen, isAudioMuted, isVideoOff 
     }}>
       {children}

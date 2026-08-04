@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { UserButton, SignedIn } from '@clerk/clerk-react';
+// FIX: Imported SignedOut and RedirectToSignIn
+import { UserButton, SignedIn, SignedOut, RedirectToSignIn } from '@clerk/clerk-react';
 import LandingPage from './pages/LandingPage';
 import VideoPlayer from './components/VideoPlayer';
 import ChatBox from './components/ChatBox';
@@ -11,7 +12,7 @@ export default function App() {
     return params.has('invite');
   });
 
-  // NEW: Track window size for Mobile Responsiveness
+  // Track window size for Mobile Responsiveness
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 900);
 
   useEffect(() => {
@@ -25,48 +26,57 @@ export default function App() {
       {!inMeeting ? (
         <LandingPage onGetStarted={() => setInMeeting(true)} />
       ) : (
-        <ContextProvider>
-          <div style={styles.roomContainer}>
-            
-            {/* Responsive Header */}
-            <header style={{ ...styles.header, flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? '15px' : '0' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <span style={{ fontSize: '1.5rem' }}>🌐</span>
-                <h2 style={{ margin: 0, color: '#fff', fontSize: '1.2rem' }}>NetMeet Live Room</h2>
-              </div>
-              <div style={{ display: 'flex', gap: '15px', alignItems: 'center', width: isMobile ? '100%' : 'auto', justifyContent: isMobile ? 'space-between' : 'flex-end' }}>
-                <button onClick={() => window.location.href = '/'} style={styles.leaveRoomBtn}>
-                  Exit Room
-                </button>
-                <SignedIn>
-                  <UserButton />
-                </SignedIn>
-              </div>
-            </header>
+        <>
+          {/* FIX Part 1: Only show the meeting room if they are signed in */}
+          <SignedIn>
+            <ContextProvider>
+              <div style={styles.roomContainer}>
+                
+                {/* Responsive Header */}
+                <header style={{ ...styles.header, flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? '15px' : '0' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={{ fontSize: '1.5rem' }}>🌐</span>
+                    <h2 style={{ margin: 0, color: '#fff', fontSize: '1.2rem' }}>NetMeet Live Room</h2>
+                  </div>
+                  <div style={{ display: 'flex', gap: '15px', alignItems: 'center', width: isMobile ? '100%' : 'auto', justifyContent: isMobile ? 'space-between' : 'flex-end' }}>
+                    <button onClick={() => window.location.href = '/'} style={styles.leaveRoomBtn}>
+                      Exit Room
+                    </button>
+                    {/* No need to wrap this in <SignedIn> anymore, since the whole room is protected! */}
+                    <UserButton />
+                  </div>
+                </header>
 
-            {/* FIX: Dynamic Layout Grid. Stacks vertically on mobile! */}
-            <div style={{
-              display: isMobile ? 'flex' : 'grid',
-              flexDirection: isMobile ? 'column' : 'row',
-              gridTemplateColumns: isMobile ? 'none' : '7fr 3fr',
-              gap: '20px',
-              flex: 1,
-              minHeight: 0
-            }}>
-              
-              {/* Video Section */}
-              <div style={{ overflowY: 'auto', flex: isMobile ? 'none' : 1 }}>
-                <VideoPlayer isMobile={isMobile} />
-              </div>
-              
-              {/* Chat Section (Gets a fixed height on mobile so it doesn't disappear) */}
-              <div style={{ height: isMobile ? '500px' : '100%', minHeight: '400px' }}>
-                <ChatBox />
-              </div>
+                {/* Dynamic Layout Grid */}
+                <div style={{
+                  display: isMobile ? 'flex' : 'grid',
+                  flexDirection: isMobile ? 'column' : 'row',
+                  gridTemplateColumns: isMobile ? 'none' : '7fr 3fr',
+                  gap: '20px',
+                  flex: 1,
+                  minHeight: 0
+                }}>
+                  
+                  {/* Video Section */}
+                  <div style={{ overflowY: 'auto', flex: isMobile ? 'none' : 1 }}>
+                    <VideoPlayer isMobile={isMobile} />
+                  </div>
+                  
+                  {/* Chat Section */}
+                  <div style={{ height: isMobile ? '500px' : '100%', minHeight: '400px' }}>
+                    <ChatBox />
+                  </div>
 
-            </div>
-          </div>
-        </ContextProvider>
+                </div>
+              </div>
+            </ContextProvider>
+          </SignedIn>
+
+          {/* FIX Part 2: If they are logged out but trying to access a room, force them to log in */}
+          <SignedOut>
+            <RedirectToSignIn />
+          </SignedOut>
+        </>
       )}
     </div>
   );

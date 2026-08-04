@@ -44,6 +44,11 @@ io.on("connection", (socket) => {
   });
 });
 
+// Handle explicit call termination
+  socket.on("endCall", ({ to }) => {
+    io.to(to).emit("callEnded");
+  });
+
 // NEW: Start the server on the correct cloud port
 server.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
