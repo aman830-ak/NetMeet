@@ -23,7 +23,7 @@ const ContextProvider = ({ children }) => {
   const [callAccepted, setCallAccepted] = useState(false);
   const [callEnded, setCallEnded] = useState(false);
   
-  // NEW: State for tracking outgoing calls (Bug 3 Fix)
+  // State for tracking outgoing calls (Bug 3 Fix)
   const [isCalling, setIsCalling] = useState(false);
 
   const [isAudioMuted, setIsAudioMuted] = useState(false);
@@ -52,9 +52,9 @@ const ContextProvider = ({ children }) => {
     socket.on('disconnect', () => setIsConnected(false));
 
     navigator.mediaDevices.getUserMedia({ 
-    video: { facingMode: "user" }, // explicitly requests the front-facing mobile camera
-    audio: true 
-      })
+      video: { facingMode: "user" }, // explicitly requests the front-facing mobile camera
+      audio: true 
+    })
       .then((currentStream) => {
         if (!isMounted) {
           currentStream.getTracks().forEach(track => track.stop());
@@ -73,17 +73,17 @@ const ContextProvider = ({ children }) => {
       setCall({ isReceivedCall: true, from, name: callerName, signal });
     });
 
-    // FIX: Moved this BEFORE the return statement so it actually runs!
+    // FIX: Gentle state cleanup instead of aggressive page reload
     socket.on('callEnded', () => {
       setCallEnded(true);
       setCallAccepted(false);
-      setIsCalling(false); // Reset calling state if they hang up
+      setCall({}); // Reset the specific incoming/outgoing call object
+      setIsCalling(false); // Reset calling state
       setRemoteStream(null);
       if (connectionRef.current) {
         connectionRef.current.destroy();
+        connectionRef.current = null; // Force nullification of the ref
       }
-      alert("The other participant has left the call.");
-      window.location.reload(); // Resets the room UI smoothly
     });
 
     return () => {
@@ -92,7 +92,7 @@ const ContextProvider = ({ children }) => {
       socket.off('me');
       socket.off('disconnect');
       socket.off('callUser');
-      socket.off('callEnded'); // Clean up our new listener
+      socket.off('callEnded');
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
       }
@@ -154,7 +154,7 @@ const ContextProvider = ({ children }) => {
   };
 
   const leaveCall = () => {
-    setIsCalling(false); // Clear calling state if we cancel
+    setIsCalling(false); 
     setCallEnded(true);
     
     // Notify partner that we are leaving
@@ -196,19 +196,17 @@ const ContextProvider = ({ children }) => {
       stream.addTrack(screenTrack);
       if (myVideo.current) myVideo.current.srcObject = stream;
 
-      // 2. FIX: Replace the track on the live WebRTC connection so the REMOTE user sees it
+      // 2. Replace the track on the live WebRTC connection
       if (connectionRef.current) {
         connectionRef.current.replaceTrack(cameraTrack, screenTrack, stream);
       }
 
       // Handle when user stops sharing via the browser's "Stop sharing" bar
       screenTrack.onended = () => {
-        // Swap back locally
         stream.removeTrack(screenTrack);
         stream.addTrack(cameraTrack);
         if (myVideo.current) myVideo.current.srcObject = stream;
 
-        // Replace back on the WebRTC peer connection
         if (connectionRef.current) {
           connectionRef.current.replaceTrack(screenTrack, cameraTrack, stream);
         }
@@ -221,7 +219,7 @@ const ContextProvider = ({ children }) => {
   return (
     <SocketContext.Provider value={{ 
       stream, remoteStream, myVideo, userVideo, me, user, socket, isConnected, cameraError,
-      call, callAccepted, callEnded, isCalling, callUser, answerCall, leaveCall, // isCalling exported here!
+      call, callAccepted, callEnded, isCalling, callUser, answerCall, leaveCall,
       toggleAudio, toggleVideo, shareScreen, isAudioMuted, isVideoOff 
     }}>
       {children}

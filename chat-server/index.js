@@ -7,7 +7,7 @@ const { Server } = require("socket.io");
 const app = express();
 app.use(cors());
 
-// NEW: Dynamic port assignment for Render cloud hosting
+// Dynamic port assignment for Render cloud hosting
 const PORT = process.env.PORT || 4000; 
 
 const server = http.createServer(app);
@@ -38,18 +38,20 @@ io.on("connection", (socket) => {
     socket.broadcast.emit("receiveMessage", messageData);
   });
 
-  // 5. Handle Disconnect
-  socket.on("disconnect", () => {
-    socket.broadcast.emit("callEnded");
-  });
-});
-
-// Handle explicit call termination
+  // 5. FIX: Handle explicit call termination (Moved INSIDE the connection block)
   socket.on("endCall", ({ to }) => {
     io.to(to).emit("callEnded");
   });
 
-// NEW: Start the server on the correct cloud port
+  // 6. FIX: Handle Disconnect safely
+  socket.on("disconnect", () => {
+    // We removed the aggressive broadcast here. 
+    // Now it just quietly logs the disconnection without destroying other people's calls!
+    console.log("Client disconnected:", socket.id);
+  });
+});
+
+// Start the server on the correct cloud port
 server.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
