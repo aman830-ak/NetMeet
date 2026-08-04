@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-// FIX: Imported SignedOut and RedirectToSignIn
 import { UserButton, SignedIn, SignedOut, RedirectToSignIn } from '@clerk/clerk-react';
 import LandingPage from './pages/LandingPage';
 import VideoPlayer from './components/VideoPlayer';
@@ -27,7 +26,7 @@ export default function App() {
         <LandingPage onGetStarted={() => setInMeeting(true)} />
       ) : (
         <>
-          {/* FIX Part 1: Only show the meeting room if they are signed in */}
+          {/* Only show the meeting room if they are signed in */}
           <SignedIn>
             <ContextProvider>
               <div style={styles.roomContainer}>
@@ -42,7 +41,6 @@ export default function App() {
                     <button onClick={() => window.location.href = '/'} style={styles.leaveRoomBtn}>
                       Exit Room
                     </button>
-                    {/* No need to wrap this in <SignedIn> anymore, since the whole room is protected! */}
                     <UserButton />
                   </div>
                 </header>
@@ -72,7 +70,7 @@ export default function App() {
             </ContextProvider>
           </SignedIn>
 
-          {/* FIX Part 2: If they are logged out but trying to access a room, force them to log in */}
+          {/* If they are logged out but trying to access a room, force them to log in */}
           <SignedOut>
             <RedirectToSignIn />
           </SignedOut>
