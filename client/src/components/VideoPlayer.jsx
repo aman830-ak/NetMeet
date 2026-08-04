@@ -10,7 +10,6 @@ const VideoPlayer = ({ isMobile }) => {
   const [idToCall, setIdToCall] = useState(inviteId || '');
   const [copied, setCopied] = useState(false);
   
-  // NEW: Ref to hold our ringtone audio
   const ringtoneAudio = useRef(null);
   
   if (!context) return <div style={{ padding: '20px', color: '#fff' }}>Loading camera...</div>;
@@ -22,22 +21,20 @@ const VideoPlayer = ({ isMobile }) => {
     cameraError 
   } = context;
 
-  // NEW: Initialize the audio file once when the component loads
+  // Initialize the audio file once when the component loads
   useEffect(() => {
     ringtoneAudio.current = new Audio('/ringtone.mp3');
-    ringtoneAudio.current.loop = true; // Make it loop until they answer!
+    ringtoneAudio.current.loop = true;
   }, []);
 
-  // NEW: Play or stop the audio based on call state
+  // Play or stop the audio based on call state
   useEffect(() => {
     if (call.isReceivedCall && !callAccepted && !callEnded) {
-      // Play sound! (We catch errors in case the browser blocks autoplay)
       ringtoneAudio.current?.play().catch(err => console.log("Browser blocked autoplay:", err));
     } else {
-      // Stop sound!
       if (ringtoneAudio.current) {
         ringtoneAudio.current.pause();
-        ringtoneAudio.current.currentTime = 0; // Reset to the beginning
+        ringtoneAudio.current.currentTime = 0; 
       }
     }
   }, [call.isReceivedCall, callAccepted, callEnded]);
@@ -63,6 +60,9 @@ const VideoPlayer = ({ isMobile }) => {
     }).catch(() => alert("Failed to copy link."));
   };
 
+  // Helper variable to know if we are actively in a connected call
+  const callActive = callAccepted && !callEnded;
+
   return (
     <div style={styles.container}>
       
@@ -83,9 +83,10 @@ const VideoPlayer = ({ isMobile }) => {
 
       {/* Camera Grid */}
       <div style={styles.gridContainer(isMobile)}>
-        {/* LOCAL CAMERA */}
+        
+        {/* LOCAL CAMERA (isLocal = true) */}
         {stream ? (
-          <div style={styles.videoWrapper(isMobile)}>
+          <div style={styles.videoWrapper(isMobile, true, callActive)}>
             <div style={styles.labelContainer}>
               <h3 style={styles.nameLabel}>
                 {user?.firstName || 'You'} 
@@ -101,7 +102,7 @@ const VideoPlayer = ({ isMobile }) => {
             {isVideoOff && <div style={styles.videoOffPlaceholder}>🎥 Camera Disabled</div>}
           </div>
         ) : cameraError ? (
-          <div style={styles.videoWrapper(isMobile)}>
+          <div style={styles.videoWrapper(isMobile, true, callActive)}>
              <div style={styles.labelContainer}>
               <h3 style={styles.nameLabel}>You</h3>
             </div>
@@ -109,14 +110,14 @@ const VideoPlayer = ({ isMobile }) => {
           </div>
         ) : null}
 
-        {/* REMOTE CAMERA */}
-        {callAccepted && !callEnded ? (
-          <div style={styles.videoWrapper(isMobile)}>
+        {/* REMOTE CAMERA (isLocal = false) */}
+        {callActive ? (
+          <div style={styles.videoWrapper(isMobile, false, callActive)}>
             <h3 style={styles.remoteNameLabel}>{call.name || 'Remote User'}</h3>
             <video playsInline ref={userVideo} autoPlay style={styles.video} />
           </div>
         ) : (
-          <div style={styles.videoWrapper(isMobile)}>
+          <div style={styles.videoWrapper(isMobile, false, callActive)}>
             <h3 style={styles.remoteNameLabel}>Remote User</h3>
             <div style={styles.emptyVideo}>Waiting for connection...</div>
           </div>
@@ -125,8 +126,6 @@ const VideoPlayer = ({ isMobile }) => {
 
       {/* Control Bar */}
       <div style={styles.bottomControlsWrap(isMobile)}>
-        
-        {/* Audio/Video Controls */}
         <div style={styles.controlsBar(isMobile)}>
           <button onClick={toggleAudio} style={styles.controlBtn(isAudioMuted)}>
             {isAudioMuted ? '🔇' : '🎤 Mic'}
@@ -134,15 +133,13 @@ const VideoPlayer = ({ isMobile }) => {
           <button onClick={toggleVideo} style={styles.controlBtn(isVideoOff)}>
             {isVideoOff ? '🚫' : '📷 Video'}
           </button>
-          
           {!isMobile && (
             <button onClick={shareScreen} style={styles.controlBtn(false)}>💻 Share</button>
           )}
         </div>
 
-        {/* Call Connect/Disconnect Controls */}
         <div style={styles.callControls(isMobile)}>
-          {callAccepted && !callEnded ? (
+          {callActive ? (
             <button onClick={leaveCall} style={styles.hangUpBtn(isMobile)}>☎️ Hang Up</button>
           ) : inviteId ? (
             <button onClick={() => callUser(idToCall)} style={styles.callBtn(isMobile)}>👋 Join Meeting</button>
@@ -159,7 +156,6 @@ const VideoPlayer = ({ isMobile }) => {
             </div>
           )}
         </div>
-
       </div>
     </div>
   );
@@ -169,9 +165,26 @@ const VideoPlayer = ({ isMobile }) => {
 const styles = {
   container: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px', width: '100%', position: 'relative' },
   gridContainer: (isMobile) => ({ display: 'flex', gap: '20px', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'center', width: '100%', maxWidth: '1200px' }),
-  videoWrapper: (isMobile) => ({ flex: isMobile ? 'none' : '1', width: isMobile ? '100%' : '50%', minHeight: isMobile ? '30vh' : '45vh', borderRadius: '16px', overflow: 'hidden', backgroundColor: '#000', position: 'relative', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.3)', border: '2px solid #334155' }),
+  
+  // FIX: Dynamic Video Wrapper Logic
+  videoWrapper: (isMobile, isLocal, callActive) => ({ 
+    flex: isMobile ? 'none' : '1', 
+    width: isMobile ? '100%' : '50%', 
+    // Dynamically adjust height: If connected on mobile, remote user gets big (45vh), local user gets small (20vh)
+    minHeight: isMobile ? (callActive ? (isLocal ? '20vh' : '45vh') : (isLocal ? '40vh' : '15vh')) : '45vh',
+    // Dynamically adjust order: If connected on mobile, remote user jumps to top (order: 1), local user drops to bottom (order: 2)
+    order: isMobile && callActive ? (isLocal ? 2 : 1) : (isLocal ? 1 : 2), 
+    
+    borderRadius: '16px', 
+    overflow: 'hidden', 
+    backgroundColor: '#000', 
+    position: 'relative', 
+    boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.3)', 
+    border: '2px solid #334155' 
+  }),
+
   video: { width: '100%', height: '100%', display: 'block', transform: 'scaleX(-1)', objectFit: 'cover' },
-  emptyVideo: { width: '100%', height: '100%', minHeight: '250px', backgroundColor: '#1e293b', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: '0.95rem' },
+  emptyVideo: { width: '100%', height: '100%', minHeight: '100%', backgroundColor: '#1e293b', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: '0.95rem' },
   videoOffPlaceholder: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0f172a', color: '#94a3b8', fontSize: '1.2rem', zIndex: 1 },
   labelContainer: { position: 'absolute', top: '15px', left: '15px', right: '15px', zIndex: 10, display: 'flex', gap: '10px', alignItems: 'center', justifyContent: 'space-between' },
   nameLabel: { margin: 0, color: '#fff', backgroundColor: 'rgba(15, 23, 42, 0.75)', padding: '6px 12px', borderRadius: '8px', fontSize: '0.8rem', backdropFilter: 'blur(4px)', fontWeight: '600', display: 'flex', alignItems: 'center' },
