@@ -1,4 +1,3 @@
-// client/src/context/SocketContext.jsx
 import React, { createContext, useState, useRef, useEffect } from 'react';
 import { io } from 'socket.io-client';
 import { useUser } from '@clerk/clerk-react';
@@ -71,6 +70,15 @@ const ContextProvider = ({ children }) => {
       setCall({ isReceivedCall: true, from, name: callerName, signal });
     });
 
+    // 🔥 FIX: Global listener for call acceptance to prevent duplicate triggers
+    socket.on('callAccepted', (signal) => {
+      setIsCalling(false); 
+      setCallAccepted(true);
+      if (connectionRef.current) {
+        connectionRef.current.signal(signal);
+      }
+    });
+
     socket.on('callEnded', () => {
       setCallEnded(true);
       setCallAccepted(false);
@@ -81,9 +89,6 @@ const ContextProvider = ({ children }) => {
         connectionRef.current.destroy();
         connectionRef.current = null; 
       }
-      
-      // FIX 2: Bring back the alert safely!
-      // We use setTimeout so React has time to clear the video off the screen FIRST.
       setTimeout(() => {
         alert("The other participant has left the call.");
       }, 100);
@@ -95,6 +100,7 @@ const ContextProvider = ({ children }) => {
       socket.off('me');
       socket.off('disconnect');
       socket.off('callUser');
+      socket.off('callAccepted'); // Clean up!
       socket.off('callEnded');
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
@@ -129,7 +135,6 @@ const ContextProvider = ({ children }) => {
       return;
     }
 
-    // FIX 1: Save the ID of the person we are calling so we can hang up on them later!
     setCall({ to: idToCall });
     setIsCalling(true);
 
@@ -148,29 +153,20 @@ const ContextProvider = ({ children }) => {
       setRemoteStream(currentStream);
     });
 
-    socket.on('callAccepted', (signal) => {
-      setIsCalling(false); 
-      setCallAccepted(true);
-      peer.signal(signal);
-    });
-
+    // The socket.on('callAccepted') was removed from here to prevent bugs!
     connectionRef.current = peer;
   };
 
   const leaveCall = () => {
     setIsCalling(false); 
     setCallEnded(true);
-    
-    // Notify partner that we are leaving
     const recipient = call.from || call.to;
     if (recipient) {
       socket.emit("endCall", { to: recipient });
     }
-
-    // FIX 3: Smoothly reset the UI back to the "Waiting" state instead of forcing a page reload
     setRemoteStream(null);
     setCallAccepted(false);
-    setCall({}); // Clear the call object completely
+    setCall({});
     
     if (connectionRef.current) {
       connectionRef.current.destroy();

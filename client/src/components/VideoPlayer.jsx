@@ -3,13 +3,11 @@ import { SocketContext } from '../context/SocketContext';
 
 const VideoPlayer = ({ isMobile }) => {
   const context = useContext(SocketContext);
-  
   const params = new URLSearchParams(window.location.search);
   const inviteId = params.get('invite');
   
   const [idToCall, setIdToCall] = useState(inviteId || '');
   const [copied, setCopied] = useState(false);
-  
   const ringtoneAudio = useRef(null);
   
   if (!context) return <div style={{ padding: '20px', color: '#fff' }}>Loading camera...</div>;
@@ -37,13 +35,22 @@ const VideoPlayer = ({ isMobile }) => {
     }
   }, [call.isReceivedCall, callAccepted, callEnded]);
 
-  useEffect(() => {
-    if (myVideo.current && stream) myVideo.current.srcObject = stream;
-  }, [stream]);
+  // 🔥 FIX: Callback Refs guarantee the stream is attached even when layout shifts!
+  const handleLocalVideo = (node) => {
+    if (node && stream) {
+      node.srcObject = stream;
+    }
+    myVideo.current = node; 
+  };
 
-  useEffect(() => {
-    if (userVideo.current && remoteStream) userVideo.current.srcObject = remoteStream;
-  }, [remoteStream, callAccepted]);
+  const handleRemoteVideo = (node) => {
+    if (node && remoteStream) {
+      node.srcObject = remoteStream;
+      // Force play to bypass mobile browser restrictions
+      node.play().catch(err => console.log("Remote play error:", err)); 
+    }
+    userVideo.current = node;
+  };
 
   const copyInviteLink = () => {
     if (!me) {
@@ -51,14 +58,12 @@ const VideoPlayer = ({ isMobile }) => {
       return;
     }
     const inviteLink = `${window.location.origin}/?invite=${me}`;
-    
     navigator.clipboard.writeText(inviteLink).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }).catch(() => alert("Failed to copy link."));
   };
 
-  // Helper variable to check if a call is actively connected
   const callActive = callAccepted && !callEnded;
 
   return (
@@ -80,39 +85,49 @@ const VideoPlayer = ({ isMobile }) => {
       )}
 
       {/* Camera Grid */}
-      <div style={styles.gridContainer(isMobile)}>
+      <div style={styles.gridContainer(isMobile, callActive)}>
         
-        {/* LOCAL CAMERA (isLocal = true) */}
+        {/* LOCAL CAMERA */}
         {stream ? (
           <div style={styles.videoWrapper(isMobile, true, callActive)}>
-            <div style={styles.labelContainer}>
-              <h3 style={styles.nameLabel}>
-                {user?.firstName || 'You'} 
-                <span style={{ marginLeft: '6px', fontSize: '10px', color: isConnected ? '#4ade80' : '#f87171' }}>
-                  {isConnected ? '🟢' : '🔴'}
-                </span>
-              </h3>
-              <button onClick={copyInviteLink} style={styles.copyBtn}>
-                {copied ? '✅ Copied!' : `🔗 Invite`}
-              </button>
-            </div>
-            <video playsInline muted ref={myVideo} autoPlay style={{...styles.video, opacity: isVideoOff ? 0 : 1}} />
-            {isVideoOff && <div style={styles.videoOffPlaceholder}>🎥 Camera Disabled</div>}
+            {!(isMobile && callActive) && (
+              <div style={styles.labelContainer}>
+                <h3 style={styles.nameLabel}>
+                  {user?.firstName || 'You'} 
+                  <span style={{ marginLeft: '6px', fontSize: '10px', color: isConnected ? '#4ade80' : '#f87171' }}>
+                    {isConnected ? '🟢' : '🔴'}
+                  </span>
+                </h3>
+                <button onClick={copyInviteLink} style={styles.copyBtn}>
+                  {copied ? '✅ Copied!' : `🔗 Invite`}
+                </button>
+              </div>
+            )}
+            <video playsInline muted ref={handleLocalVideo} autoPlay style={{...styles.localVideo, opacity: isVideoOff ? 0 : 1}} />
+            {isVideoOff && (
+              <div style={{...styles.videoOffPlaceholder, fontSize: (isMobile && callActive) ? '0.75rem' : '1.2rem', textAlign: 'center'}}>
+                🎥 <br/>Off
+              </div>
+            )}
           </div>
         ) : cameraError ? (
           <div style={styles.videoWrapper(isMobile, true, callActive)}>
-             <div style={styles.labelContainer}>
-              <h3 style={styles.nameLabel}>You</h3>
+            {!(isMobile && callActive) && (
+              <div style={styles.labelContainer}>
+                <h3 style={styles.nameLabel}>You</h3>
+              </div>
+            )}
+            <div style={{...styles.videoOffPlaceholder, fontSize: (isMobile && callActive) ? '0.75rem' : '1.2rem', textAlign: 'center'}}>
+              🎥 <br/>Blocked
             </div>
-            <div style={styles.videoOffPlaceholder}>🎥 Camera Blocked</div>
           </div>
         ) : null}
 
-        {/* REMOTE CAMERA (isLocal = false) */}
+        {/* REMOTE CAMERA */}
         {callActive ? (
           <div style={styles.videoWrapper(isMobile, false, callActive)}>
             <h3 style={styles.remoteNameLabel}>{call.name || 'Remote User'}</h3>
-            <video playsInline ref={userVideo} autoPlay style={styles.video} />
+            <video playsInline ref={handleRemoteVideo} autoPlay style={styles.remoteVideo} />
           </div>
         ) : (
           <div style={styles.videoWrapper(isMobile, false, callActive)}>
@@ -145,6 +160,9 @@ const VideoPlayer = ({ isMobile }) => {
             <div style={{ display: 'flex', gap: '10px', width: '100%', flex: 1 }}>
               <input 
                 type="text" 
+                id="invite-id-input"
+                name="invite-id-input"
+                autoComplete="off"
                 placeholder="Paste ID here..." 
                 value={idToCall} 
                 onChange={(e) => setIdToCall(e.target.value)} 
@@ -162,28 +180,64 @@ const VideoPlayer = ({ isMobile }) => {
 // 🎨 RESPONSIVE STYLES
 const styles = {
   container: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px', width: '100%', position: 'relative' },
-  gridContainer: (isMobile) => ({ display: 'flex', gap: '20px', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'center', width: '100%', maxWidth: '1200px' }),
   
-  // 🔥 THE FIX: Dynamic Video Wrapper Logic 🔥
-  videoWrapper: (isMobile, isLocal, callActive) => ({ 
-    flex: isMobile ? 'none' : '1', 
-    width: isMobile ? '100%' : '50%', 
-    // If mobile & connected: Remote is BIG (45vh), Local is SMALL (20vh)
-    minHeight: isMobile ? (callActive ? (isLocal ? '20vh' : '45vh') : (isLocal ? '40vh' : '15vh')) : '45vh',
-    // If mobile & connected: Remote jumps to TOP (order 1), Local drops to BOTTOM (order 2)
-    order: isMobile && callActive ? (isLocal ? 2 : 1) : (isLocal ? 1 : 2), 
-    
-    borderRadius: '16px', 
-    overflow: 'hidden', 
-    backgroundColor: '#000', 
-    position: 'relative', 
-    boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.3)', 
-    border: '2px solid #334155' 
+  gridContainer: (isMobile, callActive) => ({ 
+    display: 'flex', 
+    gap: '20px', 
+    flexDirection: isMobile ? 'column' : 'row', 
+    justifyContent: 'center', 
+    width: '100%', 
+    maxWidth: '1200px',
+    position: (isMobile && callActive) ? 'relative' : 'static' 
   }),
+  
+  videoWrapper: (isMobile, isLocal, callActive) => {
+    if (isMobile && callActive) {
+      if (isLocal) {
+        return {
+          position: 'absolute',
+          bottom: '15px',
+          right: '15px',
+          width: '110px',
+          height: '160px',
+          borderRadius: '12px',
+          overflow: 'hidden',
+          backgroundColor: '#1e293b',
+          zIndex: 20, 
+          border: '2px solid #475569',
+          boxShadow: '0 10px 25px rgba(0,0,0,0.5)'
+        }
+      } else {
+        return {
+          width: '100%',
+          height: '65vh',
+          borderRadius: '16px',
+          overflow: 'hidden',
+          backgroundColor: '#000',
+          position: 'relative',
+          border: '2px solid #334155'
+        }
+      }
+    }
 
-  video: { width: '100%', height: '100%', display: 'block', transform: 'scaleX(-1)', objectFit: 'cover' },
+    return { 
+      flex: isMobile ? 'none' : '1', 
+      width: isMobile ? '100%' : '50%', 
+      height: isMobile ? '35vh' : '45vh', 
+      borderRadius: '16px', 
+      overflow: 'hidden', 
+      backgroundColor: '#000', 
+      position: 'relative', 
+      boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.3)', 
+      border: '2px solid #334155' 
+    }
+  },
+
+  localVideo: { width: '100%', height: '100%', display: 'block', transform: 'scaleX(-1)', objectFit: 'cover' },
+  remoteVideo: { width: '100%', height: '100%', display: 'block', transform: 'none', objectFit: 'cover' },
+  
   emptyVideo: { width: '100%', height: '100%', minHeight: '100%', backgroundColor: '#1e293b', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: '0.95rem' },
-  videoOffPlaceholder: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0f172a', color: '#94a3b8', fontSize: '1.2rem', zIndex: 1 },
+  videoOffPlaceholder: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0f172a', color: '#94a3b8', zIndex: 1 },
   labelContainer: { position: 'absolute', top: '15px', left: '15px', right: '15px', zIndex: 10, display: 'flex', gap: '10px', alignItems: 'center', justifyContent: 'space-between' },
   nameLabel: { margin: 0, color: '#fff', backgroundColor: 'rgba(15, 23, 42, 0.75)', padding: '6px 12px', borderRadius: '8px', fontSize: '0.8rem', backdropFilter: 'blur(4px)', fontWeight: '600', display: 'flex', alignItems: 'center' },
   remoteNameLabel: { position: 'absolute', top: '15px', left: '15px', margin: 0, color: '#fff', backgroundColor: 'rgba(15, 23, 42, 0.75)', padding: '6px 12px', borderRadius: '8px', zIndex: 10, fontSize: '0.8rem', backdropFilter: 'blur(4px)', fontWeight: '600' },
