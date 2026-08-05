@@ -21,13 +21,11 @@ const VideoPlayer = ({ isMobile }) => {
     cameraError 
   } = context;
 
-  // Initialize the audio file once when the component loads
   useEffect(() => {
     ringtoneAudio.current = new Audio('/ringtone.mp3');
     ringtoneAudio.current.loop = true;
   }, []);
 
-  // Play or stop the audio based on call state
   useEffect(() => {
     if (call.isReceivedCall && !callAccepted && !callEnded) {
       ringtoneAudio.current?.play().catch(err => console.log("Browser blocked autoplay:", err));
@@ -60,7 +58,7 @@ const VideoPlayer = ({ isMobile }) => {
     }).catch(() => alert("Failed to copy link."));
   };
 
-  // Helper variable to know if we are actively in a connected call
+  // Helper variable to check if a call is actively connected
   const callActive = callAccepted && !callEnded;
 
   return (
@@ -166,13 +164,13 @@ const styles = {
   container: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px', width: '100%', position: 'relative' },
   gridContainer: (isMobile) => ({ display: 'flex', gap: '20px', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'center', width: '100%', maxWidth: '1200px' }),
   
-  // FIX: Dynamic Video Wrapper Logic
+  // 🔥 THE FIX: Dynamic Video Wrapper Logic 🔥
   videoWrapper: (isMobile, isLocal, callActive) => ({ 
     flex: isMobile ? 'none' : '1', 
     width: isMobile ? '100%' : '50%', 
-    // Dynamically adjust height: If connected on mobile, remote user gets big (45vh), local user gets small (20vh)
+    // If mobile & connected: Remote is BIG (45vh), Local is SMALL (20vh)
     minHeight: isMobile ? (callActive ? (isLocal ? '20vh' : '45vh') : (isLocal ? '40vh' : '15vh')) : '45vh',
-    // Dynamically adjust order: If connected on mobile, remote user jumps to top (order: 1), local user drops to bottom (order: 2)
+    // If mobile & connected: Remote jumps to TOP (order 1), Local drops to BOTTOM (order 2)
     order: isMobile && callActive ? (isLocal ? 2 : 1) : (isLocal ? 1 : 2), 
     
     borderRadius: '16px', 
