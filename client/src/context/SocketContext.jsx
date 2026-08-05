@@ -46,7 +46,12 @@ const ContextProvider = ({ children }) => {
     });
 
     socket.on('me', (id) => setMe(id));
-    socket.on('disconnect', () => setIsConnected(false));
+    
+    // When the local socket dies (e.g., local user loses internet)
+    socket.on('disconnect', () => {
+      setIsConnected(false);
+      leaveCall(); // Instantly clean up the local UI
+    });
 
     navigator.mediaDevices.getUserMedia({ 
       video: { facingMode: "user" },
@@ -70,7 +75,6 @@ const ContextProvider = ({ children }) => {
       setCall({ isReceivedCall: true, from, name: callerName, signal });
     });
 
-    // 🔥 FIX: Global listener for call acceptance to prevent duplicate triggers
     socket.on('callAccepted', (signal) => {
       setIsCalling(false); 
       setCallAccepted(true);
@@ -100,7 +104,7 @@ const ContextProvider = ({ children }) => {
       socket.off('me');
       socket.off('disconnect');
       socket.off('callUser');
-      socket.off('callAccepted'); // Clean up!
+      socket.off('callAccepted');
       socket.off('callEnded');
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
@@ -124,6 +128,10 @@ const ContextProvider = ({ children }) => {
     peer.on('stream', (currentStream) => {
       setRemoteStream(currentStream);
     });
+
+    // 🔥 FIX: WebRTC Tripwires for Answerer
+    peer.on('close', () => leaveCall());
+    peer.on('error', () => leaveCall());
 
     peer.signal(call.signal);
     connectionRef.current = peer;
@@ -153,7 +161,10 @@ const ContextProvider = ({ children }) => {
       setRemoteStream(currentStream);
     });
 
-    // The socket.on('callAccepted') was removed from here to prevent bugs!
+    // 🔥 FIX: WebRTC Tripwires for Caller
+    peer.on('close', () => leaveCall());
+    peer.on('error', () => leaveCall());
+
     connectionRef.current = peer;
   };
 
