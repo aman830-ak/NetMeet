@@ -3,11 +3,13 @@ import { SocketContext } from '../context/SocketContext';
 
 const VideoPlayer = ({ isMobile }) => {
   const context = useContext(SocketContext);
+  
   const params = new URLSearchParams(window.location.search);
   const inviteId = params.get('invite');
   
   const [idToCall, setIdToCall] = useState(inviteId || '');
   const [copied, setCopied] = useState(false);
+  
   const ringtoneAudio = useRef(null);
   
   if (!context) return <div style={{ padding: '20px', color: '#fff' }}>Loading camera...</div>;
@@ -18,6 +20,8 @@ const VideoPlayer = ({ isMobile }) => {
     toggleAudio, toggleVideo, shareScreen, isAudioMuted, isVideoOff,
     cameraError 
   } = context;
+
+  const callActive = callAccepted && !callEnded;
 
   useEffect(() => {
     ringtoneAudio.current = new Audio('/ringtone.mp3');
@@ -35,22 +39,19 @@ const VideoPlayer = ({ isMobile }) => {
     }
   }, [call.isReceivedCall, callAccepted, callEnded]);
 
-  // 🔥 FIX: Callback Refs guarantee the stream is attached even when layout shifts!
-  const handleLocalVideo = (node) => {
-    if (node && stream) {
-      node.srcObject = stream;
+  // 🔥 FIX: Bulletproof stream binding. 
+  // Adding callActive and isMobile to the dependency array forces the video to re-attach if the layout changes!
+  useEffect(() => {
+    if (myVideo.current && stream) {
+      myVideo.current.srcObject = stream;
     }
-    myVideo.current = node; 
-  };
+  }, [stream, callActive, isMobile]);
 
-  const handleRemoteVideo = (node) => {
-    if (node && remoteStream) {
-      node.srcObject = remoteStream;
-      // Force play to bypass mobile browser restrictions
-      node.play().catch(err => console.log("Remote play error:", err)); 
+  useEffect(() => {
+    if (userVideo.current && remoteStream) {
+      userVideo.current.srcObject = remoteStream;
     }
-    userVideo.current = node;
-  };
+  }, [remoteStream, callActive, isMobile]);
 
   const copyInviteLink = () => {
     if (!me) {
@@ -58,13 +59,12 @@ const VideoPlayer = ({ isMobile }) => {
       return;
     }
     const inviteLink = `${window.location.origin}/?invite=${me}`;
+    
     navigator.clipboard.writeText(inviteLink).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }).catch(() => alert("Failed to copy link."));
   };
-
-  const callActive = callAccepted && !callEnded;
 
   return (
     <div style={styles.container}>
@@ -103,7 +103,8 @@ const VideoPlayer = ({ isMobile }) => {
                 </button>
               </div>
             )}
-            <video playsInline muted ref={handleLocalVideo} autoPlay style={{...styles.localVideo, opacity: isVideoOff ? 0 : 1}} />
+            {/* Added onLoadedMetadata to guarantee it plays once loaded */}
+            <video playsInline muted ref={myVideo} autoPlay onLoadedMetadata={(e) => e.target.play()} style={{...styles.localVideo, opacity: isVideoOff ? 0 : 1}} />
             {isVideoOff && (
               <div style={{...styles.videoOffPlaceholder, fontSize: (isMobile && callActive) ? '0.75rem' : '1.2rem', textAlign: 'center'}}>
                 🎥 <br/>Off
@@ -126,8 +127,16 @@ const VideoPlayer = ({ isMobile }) => {
         {/* REMOTE CAMERA */}
         {callActive ? (
           <div style={styles.videoWrapper(isMobile, false, callActive)}>
-            <h3 style={styles.remoteNameLabel}>{call.name || 'Remote User'}</h3>
-            <video playsInline ref={handleRemoteVideo} autoPlay style={styles.remoteVideo} />
+            
+            <h3 style={styles.remoteNameLabel}>
+              {call.name || 'Remote User'}
+              {/* 🔥 NEW DEBUG TRACKER: Tells us if the network is blocking the video */}
+              <span style={{ marginLeft: '10px', fontSize: '0.7rem', color: remoteStream ? '#4ade80' : '#fbbf24', fontWeight: 'bold' }}>
+                {remoteStream ? '● Connected' : '● Routing...'}
+              </span>
+            </h3>
+            
+            <video playsInline ref={userVideo} autoPlay onLoadedMetadata={(e) => e.target.play()} style={styles.remoteVideo} />
           </div>
         ) : (
           <div style={styles.videoWrapper(isMobile, false, callActive)}>
@@ -240,7 +249,7 @@ const styles = {
   videoOffPlaceholder: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0f172a', color: '#94a3b8', zIndex: 1 },
   labelContainer: { position: 'absolute', top: '15px', left: '15px', right: '15px', zIndex: 10, display: 'flex', gap: '10px', alignItems: 'center', justifyContent: 'space-between' },
   nameLabel: { margin: 0, color: '#fff', backgroundColor: 'rgba(15, 23, 42, 0.75)', padding: '6px 12px', borderRadius: '8px', fontSize: '0.8rem', backdropFilter: 'blur(4px)', fontWeight: '600', display: 'flex', alignItems: 'center' },
-  remoteNameLabel: { position: 'absolute', top: '15px', left: '15px', margin: 0, color: '#fff', backgroundColor: 'rgba(15, 23, 42, 0.75)', padding: '6px 12px', borderRadius: '8px', zIndex: 10, fontSize: '0.8rem', backdropFilter: 'blur(4px)', fontWeight: '600' },
+  remoteNameLabel: { position: 'absolute', top: '15px', left: '15px', margin: 0, color: '#fff', backgroundColor: 'rgba(15, 23, 42, 0.75)', padding: '6px 12px', borderRadius: '8px', zIndex: 10, fontSize: '0.8rem', backdropFilter: 'blur(4px)', fontWeight: '600', display: 'flex', alignItems: 'center' },
   copyBtn: { backgroundColor: 'rgba(59, 130, 246, 0.9)', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '8px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 'bold', backdropFilter: 'blur(4px)', transition: '0.2s' },
   bottomControlsWrap: (isMobile) => ({ display: 'flex', gap: '15px', flexDirection: isMobile ? 'column' : 'row', width: '100%', maxWidth: '1200px' }),
   controlsBar: (isMobile) => ({ display: 'flex', gap: '10px', backgroundColor: '#1e293b', padding: '12px', borderRadius: isMobile ? '16px' : '30px', border: '1px solid #334155', justifyContent: 'center', flex: isMobile ? 'none' : '1' }),
