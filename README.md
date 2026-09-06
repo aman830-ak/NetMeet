@@ -93,8 +93,4 @@ npm run dev
 
 **Aman Kumar** 
 * **Role:** Full Stack Developer
-* **LinkedIn:** [Insert LinkedIn Profile Link]
-* **GitHub:** [Insert GitHub Profile Link]
-* **Portfolio:** [Insert Portfolio Link]
-
 *If you found this project interesting, feel free to drop a ⭐ on the repository!*
