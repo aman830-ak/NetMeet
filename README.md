@@ -1,6 +1,6 @@
 # 🌐 NetMeet 
 
-![NetMeet Banner](https://via.placeholder.com/1200x600/0f172a/0d9488?text=NetMeet+-+P2P+Video+Conferencing)
+![NetMeet Banner](./banner.png)
 
 **NetMeet** is a real-time, peer-to-peer video conferencing and collaboration platform designed for ultra-low latency browser communication. Built with React and WebRTC, it entirely bypasses heavy media routing servers to provide direct, secure, and fast video, audio, and screen-sharing experiences.
 
@@ -58,7 +58,43 @@ To run this project locally, you will need two terminal windows (one for the ser
 * A Clerk account (for authentication keys)
 
 ### 1. Backend (Signaling Server)
+
 ```bash
 cd server
 npm install
 npm start
+```
+*The server will run on `http://localhost:4000`*
+
+### 2. Frontend (Client)
+
+```bash
+cd client
+npm install
+```
+
+Create a `.env` file in the `client` directory and add your keys:
+
+```env
+VITE_CLERK_PUBLISHABLE_KEY=your_clerk_publishable_key
+VITE_BACKEND_URL=http://localhost:4000
+```
+
+Start the React development server:
+
+```bash
+npm run dev
+```
+*The client will run on `http://localhost:5173`*
+
+---
+
+## 👨‍💻 Author
+
+**Aman Kumar** 
+* **Role:** Full Stack Developer
+* **LinkedIn:** [Insert LinkedIn Profile Link]
+* **GitHub:** [Insert GitHub Profile Link]
+* **Portfolio:** [Insert Portfolio Link]
+
+*If you found this project interesting, feel free to drop a ⭐ on the repository!*
