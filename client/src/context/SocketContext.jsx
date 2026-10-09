@@ -27,13 +27,17 @@ const ContextProvider = ({ children }) => {
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [cameraError, setCameraError] = useState(false);
   
-  // 🔥 NEW: State to hold our WebRTC chat messages
   const [messages, setMessages] = useState([]);
   
   const myVideo = useRef();
   const userVideo = useRef();
   const connectionRef = useRef();
   const streamRef = useRef(null); 
+  
+  const candidateQueue = useRef([]); 
+
+  // 🔥 Persistent Room ID based on Clerk user ID or volatile socket ID fallback
+  const persistentRoomId = user?.id || me;
 
   useEffect(() => {
     let isMounted = true; 
@@ -46,9 +50,16 @@ const ContextProvider = ({ children }) => {
     socket.on('connect', () => {
       setIsConnected(true);
       setMe(socket.id);
+      // Automatically join persistent room upon connection/reconnection
+      if (user?.id || socket.id) {
+        socket.emit("joinRoom", { roomId: user?.id || socket.id });
+      }
     });
 
-    socket.on('me', (id) => setMe(id));
+    socket.on('me', (id) => {
+      setMe(id);
+      socket.emit("joinRoom", { roomId: user?.id || id });
+    });
     
     socket.on('disconnect', () => {
       setIsConnected(false);
@@ -74,14 +85,28 @@ const ContextProvider = ({ children }) => {
       });
 
     socket.on('callUser', ({ from, name: callerName, signal }) => {
-      setCall({ isReceivedCall: true, from, name: callerName, signal });
+      if (connectionRef.current) {
+        try {
+          connectionRef.current.signal(signal);
+        } catch (err) {
+          console.error("Error applying trickle candidate in callUser:", err);
+        }
+      } else if (signal.type === 'offer') {
+        setCall({ isReceivedCall: true, from, name: callerName, signal });
+      } else {
+        candidateQueue.current.push(signal);
+      }
     });
 
     socket.on('callAccepted', (signal) => {
       setIsCalling(false); 
       setCallAccepted(true);
       if (connectionRef.current) {
-        connectionRef.current.signal(signal);
+        try {
+          connectionRef.current.signal(signal);
+        } catch (err) {
+          console.error("Error applying trickle candidate in callAccepted:", err);
+        }
       }
     });
 
@@ -91,7 +116,8 @@ const ContextProvider = ({ children }) => {
       setCall({}); 
       setIsCalling(false); 
       setRemoteStream(null);
-      setMessages([]); // Clear chat on end call
+      setMessages([]); 
+      candidateQueue.current = []; 
       if (connectionRef.current) {
         connectionRef.current.destroy();
         connectionRef.current = null; 
@@ -113,15 +139,22 @@ const ContextProvider = ({ children }) => {
         streamRef.current.getTracks().forEach(track => track.stop());
       }
     };
-  }, []);
+  }, [user]);
 
   const answerCall = () => {
     setCallAccepted(true);
     const peer = new Peer({ 
       initiator: false, 
-      trickle: false, 
-      stream,
-      config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:global.stun.twilio.com:3478' }] }
+      trickle: true, 
+      stream: stream || undefined,
+      config: { 
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' }, 
+          { urls: 'stun:stun1.l.google.com:19302' },
+          { urls: 'stun:stun2.l.google.com:19302' },
+          { urls: 'stun:global.stun.twilio.com:3478' }
+        ] 
+      }
     });
 
     peer.on('signal', (data) => {
@@ -132,17 +165,38 @@ const ContextProvider = ({ children }) => {
       setRemoteStream(currentStream);
     });
 
-    // 🔥 NEW: Listen for incoming encrypted P2P data messages
     peer.on('data', (data) => {
-      const messageStr = data instanceof Uint8Array ? new TextDecoder("utf-8").decode(data) : data.toString();
-      const parsedData = JSON.parse(messageStr);
-      setMessages((prev) => [...prev, parsedData]);
+      try {
+        const messageStr = data instanceof Uint8Array ? new TextDecoder("utf-8").decode(data) : data.toString();
+        const parsedData = JSON.parse(messageStr);
+        setMessages((prev) => [...prev, parsedData]);
+      } catch (err) {
+        console.error("Error decoding P2P message:", err);
+      }
     });
 
-    peer.on('close', () => leaveCall());
-    peer.on('error', () => leaveCall());
+    peer.on('close', () => {
+      console.log("Peer connection closed");
+      leaveCall();
+    });
 
-    peer.signal(call.signal);
+    peer.on('error', (err) => {
+      console.error("WebRTC Peer Answer Error:", err);
+    });
+
+    if (call.signal) {
+      peer.signal(call.signal);
+    }
+
+    candidateQueue.current.forEach((cand) => {
+      try {
+        peer.signal(cand);
+      } catch (err) {
+        console.error("Error flushing candidate:", err);
+      }
+    });
+    candidateQueue.current = [];
+
     connectionRef.current = peer;
   };
 
@@ -154,12 +208,20 @@ const ContextProvider = ({ children }) => {
 
     setCall({ to: idToCall });
     setIsCalling(true);
+    candidateQueue.current = []; 
 
     const peer = new Peer({ 
       initiator: true, 
-      trickle: false, 
-      stream,
-      config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:global.stun.twilio.com:3478' }] }
+      trickle: true, 
+      stream: stream || undefined,
+      config: { 
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' }, 
+          { urls: 'stun:stun1.l.google.com:19302' },
+          { urls: 'stun:stun2.l.google.com:19302' },
+          { urls: 'stun:global.stun.twilio.com:3478' }
+        ] 
+      }
     });
 
     peer.on('signal', (data) => {
@@ -170,15 +232,24 @@ const ContextProvider = ({ children }) => {
       setRemoteStream(currentStream);
     });
 
-    // 🔥 NEW: Listen for incoming encrypted P2P data messages
     peer.on('data', (data) => {
-      const messageStr = data instanceof Uint8Array ? new TextDecoder("utf-8").decode(data) : data.toString();
-      const parsedData = JSON.parse(messageStr);
-      setMessages((prev) => [...prev, parsedData]);
+      try {
+        const messageStr = data instanceof Uint8Array ? new TextDecoder("utf-8").decode(data) : data.toString();
+        const parsedData = JSON.parse(messageStr);
+        setMessages((prev) => [...prev, parsedData]);
+      } catch (err) {
+        console.error("Error decoding P2P message:", err);
+      }
     });
 
-    peer.on('close', () => leaveCall());
-    peer.on('error', () => leaveCall());
+    peer.on('close', () => {
+      console.log("Peer connection closed");
+      leaveCall();
+    });
+
+    peer.on('error', (err) => {
+      console.error("WebRTC Peer Call Error:", err);
+    });
 
     connectionRef.current = peer;
   };
@@ -193,7 +264,8 @@ const ContextProvider = ({ children }) => {
     setRemoteStream(null);
     setCallAccepted(false);
     setCall({});
-    setMessages([]); // Clear chat on end call
+    setMessages([]); 
+    candidateQueue.current = []; 
     
     if (connectionRef.current) {
       connectionRef.current.destroy();
@@ -201,14 +273,11 @@ const ContextProvider = ({ children }) => {
     }
   };
 
-  // 🔥 NEW: Send text messages directly through the WebRTC data channel
   const sendMessage = (text) => {
     const msgObj = { text, sender: user?.firstName || 'Guest' };
     
-    // Add to local state first
     setMessages((prev) => [...prev, { ...msgObj, sender: 'You' }]);
     
-    // Send over the direct P2P connection
     if (connectionRef.current) {
       connectionRef.current.send(JSON.stringify(msgObj));
     }
@@ -217,16 +286,20 @@ const ContextProvider = ({ children }) => {
   const toggleAudio = () => {
     if (stream) {
       const audioTrack = stream.getAudioTracks()[0];
-      audioTrack.enabled = !audioTrack.enabled;
-      setIsAudioMuted(!audioTrack.enabled);
+      if (audioTrack) {
+        audioTrack.enabled = !audioTrack.enabled;
+        setIsAudioMuted(!audioTrack.enabled);
+      }
     }
   };
 
   const toggleVideo = () => {
     if (stream) {
       const videoTrack = stream.getVideoTracks()[0];
-      videoTrack.enabled = !videoTrack.enabled;
-      setIsVideoOff(!videoTrack.enabled);
+      if (videoTrack) {
+        videoTrack.enabled = !videoTrack.enabled;
+        setIsVideoOff(!videoTrack.enabled);
+      }
     }
   };
 
@@ -263,7 +336,7 @@ const ContextProvider = ({ children }) => {
       stream, remoteStream, myVideo, userVideo, me, user, socket, isConnected, cameraError,
       call, callAccepted, callEnded, isCalling, callUser, answerCall, leaveCall,
       toggleAudio, toggleVideo, shareScreen, isAudioMuted, isVideoOff,
-      messages, sendMessage // Exporting the new chat functions
+      messages, sendMessage, persistentRoomId
     }}>
       {children}
     </SocketContext.Provider>

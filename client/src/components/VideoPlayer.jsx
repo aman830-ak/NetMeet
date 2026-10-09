@@ -26,18 +26,20 @@ const VideoPlayer = () => {
     call, callAccepted, callEnded, isCalling, callUser, answerCall, leaveCall,
     toggleAudio, toggleVideo, shareScreen, isAudioMuted, isVideoOff,
     cameraError,
-    messages, sendMessage 
+    messages, sendMessage, persistentRoomId 
   } = context;
 
   const callActive = callAccepted && !callEnded;
 
+  // Auto-dial logic for persistent invite links
   useEffect(() => {
     if (inviteId && isConnected && !callAccepted && !isCalling && !call.isReceivedCall) {
-      console.log("Auto-dialing host from invite link:", inviteId);
+      console.log("Auto-dialing host from persistent invite link:", inviteId);
       callUser(inviteId);
     }
-  }, [inviteId, isConnected, callAccepted, isCalling, call.isReceivedCall]);
+  }, [inviteId, isConnected, callAccepted, isCalling, call.isReceivedCall, callUser]);
 
+  // Ringtone initialization and control
   useEffect(() => {
     ringtoneAudio.current = new Audio('/ringtone.mp3');
     ringtoneAudio.current.loop = true;
@@ -54,21 +56,32 @@ const VideoPlayer = () => {
     }
   }, [call.isReceivedCall, callAccepted, callEnded]);
 
+  // Bind local video stream
   useEffect(() => {
-    if (myVideo.current && stream) {
-      myVideo.current.srcObject = stream;
+    const currentVideo = myVideo.current;
+    if (currentVideo && stream) {
+      currentVideo.srcObject = stream;
     }
-  }, [stream, callActive]);
+    return () => {
+      if (currentVideo) currentVideo.srcObject = null;
+    };
+  }, [stream, cameraError, myVideo]);
 
+  // Bind remote video stream
   useEffect(() => {
-    if (userVideo.current && remoteStream) {
-      userVideo.current.srcObject = remoteStream;
+    const currentRemoteVideo = userVideo.current;
+    if (currentRemoteVideo && remoteStream) {
+      currentRemoteVideo.srcObject = remoteStream;
     }
-  }, [remoteStream, callActive]);
+    return () => {
+      if (currentRemoteVideo) currentRemoteVideo.srcObject = null;
+    };
+  }, [remoteStream, callActive, userVideo]);
 
+  // 🔥 Uses persistentRoomId so invite links never expire on disconnects
   const copyInviteLink = () => {
-    if (!me) return alert("Still connecting to the server. Please wait.");
-    const inviteLink = `${window.location.origin}/room?invite=${me}`; 
+    if (!persistentRoomId) return alert("Still connecting to the server. Please wait.");
+    const inviteLink = `${window.location.origin}/room?invite=${persistentRoomId}`; 
     navigator.clipboard.writeText(inviteLink).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
@@ -79,7 +92,6 @@ const VideoPlayer = () => {
     e.preventDefault();
     if (!message.trim()) return;
     
-    // Send message via P2P data channel (or fallback locally if testing solo)
     sendMessage(message.trim());
     setMessage('');
   };
@@ -92,7 +104,7 @@ const VideoPlayer = () => {
         <div className="absolute top-10 left-1/2 -translate-x-1/2 z-[200] bg-indigo-600 text-white px-6 py-4 rounded-full shadow-[0_10px_40px_-10px_rgba(79,70,229,0.8)] flex items-center space-x-6 border border-indigo-400/30 animate-bounce">
           <div className="flex items-center space-x-3">
             <div className="bg-white/20 p-2 rounded-full"><PhoneIncoming className="w-5 h-5" /></div>
-            <span className="font-semibold">{call.name} is calling...</span>
+            <span className="font-semibold">{call.name || 'Guest'} is calling...</span>
           </div>
           <button onClick={answerCall} className="bg-white text-indigo-600 hover:bg-slate-100 active:scale-95 px-5 py-2 rounded-full text-sm font-bold shadow-sm transition-all cursor-pointer">
             Answer
@@ -143,7 +155,7 @@ const VideoPlayer = () => {
               <User className="w-10 h-10" />
             </div>
             <h3 className="text-white text-lg font-semibold mb-2">Ready to connect</h3>
-            <p className="text-sm text-slate-400 mb-8 max-w-sm">Share your invite link with a guest, or paste their ID below to start the call.</p>
+            <p className="text-sm text-slate-400 mb-8 max-w-sm">Share your reusable invite link with a guest, or paste their ID below to start the call.</p>
             
             <div className="flex items-center bg-[#14161f] border border-slate-700/80 rounded-full p-1.5 w-full max-w-md shadow-2xl">
               <input 
@@ -233,7 +245,6 @@ const VideoPlayer = () => {
           )}
         </div>
 
-        {/* 🔥 Chat input is now always enabled so you can test and type freely */}
         <form onSubmit={handleSendMessage} className="p-4 border-t border-slate-800/80 bg-[#14161f] flex items-center space-x-2">
           <input 
             type="text" 
