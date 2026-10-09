@@ -27,6 +27,9 @@ const ContextProvider = ({ children }) => {
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [cameraError, setCameraError] = useState(false);
   
+  // 🔥 NEW: State to hold our WebRTC chat messages
+  const [messages, setMessages] = useState([]);
+  
   const myVideo = useRef();
   const userVideo = useRef();
   const connectionRef = useRef();
@@ -47,10 +50,9 @@ const ContextProvider = ({ children }) => {
 
     socket.on('me', (id) => setMe(id));
     
-    // When the local socket dies (e.g., local user loses internet)
     socket.on('disconnect', () => {
       setIsConnected(false);
-      leaveCall(); // Instantly clean up the local UI
+      leaveCall(); 
     });
 
     navigator.mediaDevices.getUserMedia({ 
@@ -89,6 +91,7 @@ const ContextProvider = ({ children }) => {
       setCall({}); 
       setIsCalling(false); 
       setRemoteStream(null);
+      setMessages([]); // Clear chat on end call
       if (connectionRef.current) {
         connectionRef.current.destroy();
         connectionRef.current = null; 
@@ -129,7 +132,13 @@ const ContextProvider = ({ children }) => {
       setRemoteStream(currentStream);
     });
 
-    // 🔥 FIX: WebRTC Tripwires for Answerer
+    // 🔥 NEW: Listen for incoming encrypted P2P data messages
+    peer.on('data', (data) => {
+      const messageStr = data instanceof Uint8Array ? new TextDecoder("utf-8").decode(data) : data.toString();
+      const parsedData = JSON.parse(messageStr);
+      setMessages((prev) => [...prev, parsedData]);
+    });
+
     peer.on('close', () => leaveCall());
     peer.on('error', () => leaveCall());
 
@@ -161,7 +170,13 @@ const ContextProvider = ({ children }) => {
       setRemoteStream(currentStream);
     });
 
-    // 🔥 FIX: WebRTC Tripwires for Caller
+    // 🔥 NEW: Listen for incoming encrypted P2P data messages
+    peer.on('data', (data) => {
+      const messageStr = data instanceof Uint8Array ? new TextDecoder("utf-8").decode(data) : data.toString();
+      const parsedData = JSON.parse(messageStr);
+      setMessages((prev) => [...prev, parsedData]);
+    });
+
     peer.on('close', () => leaveCall());
     peer.on('error', () => leaveCall());
 
@@ -178,10 +193,24 @@ const ContextProvider = ({ children }) => {
     setRemoteStream(null);
     setCallAccepted(false);
     setCall({});
+    setMessages([]); // Clear chat on end call
     
     if (connectionRef.current) {
       connectionRef.current.destroy();
       connectionRef.current = null;
+    }
+  };
+
+  // 🔥 NEW: Send text messages directly through the WebRTC data channel
+  const sendMessage = (text) => {
+    const msgObj = { text, sender: user?.firstName || 'Guest' };
+    
+    // Add to local state first
+    setMessages((prev) => [...prev, { ...msgObj, sender: 'You' }]);
+    
+    // Send over the direct P2P connection
+    if (connectionRef.current) {
+      connectionRef.current.send(JSON.stringify(msgObj));
     }
   };
 
@@ -233,7 +262,8 @@ const ContextProvider = ({ children }) => {
     <SocketContext.Provider value={{ 
       stream, remoteStream, myVideo, userVideo, me, user, socket, isConnected, cameraError,
       call, callAccepted, callEnded, isCalling, callUser, answerCall, leaveCall,
-      toggleAudio, toggleVideo, shareScreen, isAudioMuted, isVideoOff 
+      toggleAudio, toggleVideo, shareScreen, isAudioMuted, isVideoOff,
+      messages, sendMessage // Exporting the new chat functions
     }}>
       {children}
     </SocketContext.Provider>

@@ -1,11 +1,29 @@
 // client/vite.config.js
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import { nodePolyfills } from 'vite-plugin-node-polyfills'; // <-- Import the polyfill plugin
+import tailwindcss from '@tailwindcss/vite'; 
+import { nodePolyfills } from 'vite-plugin-node-polyfills'; 
+import Sitemap from 'vite-plugin-sitemap'; // <-- Added Sitemap import
 
 export default defineConfig({
   plugins: [
     react(),
-    nodePolyfills(), // <-- Add it here so simple-peer can run smoothly in the browser
+    tailwindcss(), 
+    nodePolyfills(), 
+    Sitemap({
+      hostname: 'https://netmeet.live',
+      dynamicRoutes: [
+        '/'
+      ],
+      exclude: [
+        '/room',      
+        '/admin',     
+        '/login',     
+        '/test',      
+        '/thank-you', 
+        '/*'          
+      ],
+      generateRobotsTxt: true, 
+    })
   ],
 });

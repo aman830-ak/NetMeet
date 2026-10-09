@@ -12,15 +12,22 @@
   "dependencies": {
     "@clerk/clerk-react": "^5.0.0",
     "emoji-picker-react": "^4.19.1",
+    "lucide-react": "^1.52.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^6.22.0",
+    "react-router-dom": "^6.30.6",
     "simple-peer": "^9.11.1",
     "socket.io-client": "^4.7.5"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "@tailwindcss/vite": "^4.3.3",
     "@vitejs/plugin-react": "^4.3.1",
+    "autoprefixer": "^10.6.1",
+    "postcss": "^8.5.28",
+    "tailwindcss": "^4.3.3",
     "vite": "^5.4.1",
-    "vite-plugin-node-polyfills": "^0.28.0"
+    "vite-plugin-node-polyfills": "^0.28.0",
+    "vite-plugin-sitemap": "^0.8.2"
   }
 }
