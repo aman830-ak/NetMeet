@@ -29,15 +29,23 @@ const ContextProvider = ({ children }) => {
   
   const [messages, setMessages] = useState([]);
   
-  const myVideo = useRef();
-  const userVideo = useRef();
-  const connectionRef = useRef();
+  const myVideo = useRef(null);
+  const userVideo = useRef(null);
+  const connectionRef = useRef(null);
   const streamRef = useRef(null); 
   
   const candidateQueue = useRef([]); 
 
-  // 🔥 Persistent Room ID based on Clerk user ID or volatile socket ID fallback
+  // Persistent Room ID based on Clerk user ID or volatile socket ID fallback
   const persistentRoomId = user?.id || me;
+
+  const iceServers = [
+    { urls: 'stun:stun.l.google.com:19302' }, 
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:global.stun.twilio.com:3478' }
+  ];
 
   useEffect(() => {
     let isMounted = true; 
@@ -50,7 +58,6 @@ const ContextProvider = ({ children }) => {
     socket.on('connect', () => {
       setIsConnected(true);
       setMe(socket.id);
-      // Automatically join persistent room upon connection/reconnection
       if (user?.id || socket.id) {
         socket.emit("joinRoom", { roomId: user?.id || socket.id });
       }
@@ -66,8 +73,13 @@ const ContextProvider = ({ children }) => {
       leaveCall(); 
     });
 
+    // Acquire Local Camera / Microphone Stream
     navigator.mediaDevices.getUserMedia({ 
-      video: { facingMode: "user" },
+      video: { 
+        facingMode: "user",
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
+      },
       audio: true 
     })
       .then((currentStream) => {
@@ -78,26 +90,32 @@ const ContextProvider = ({ children }) => {
         streamRef.current = currentStream; 
         setStream(currentStream);
         setCameraError(false);
+
+        if (myVideo.current) {
+          myVideo.current.srcObject = currentStream;
+        }
       })
       .catch((err) => {
         console.error("Camera permission error:", err);
         setCameraError(true); 
       });
 
+    // Handle Incoming Calls
     socket.on('callUser', ({ from, name: callerName, signal }) => {
       if (connectionRef.current) {
         try {
           connectionRef.current.signal(signal);
         } catch (err) {
-          console.error("Error applying trickle candidate in callUser:", err);
+          console.error("Error applying candidate signal in callUser:", err);
         }
-      } else if (signal.type === 'offer') {
+      } else if (signal && signal.type === 'offer') {
         setCall({ isReceivedCall: true, from, name: callerName, signal });
       } else {
         candidateQueue.current.push(signal);
       }
     });
 
+    // Handle Accepted Calls
     socket.on('callAccepted', (signal) => {
       setIsCalling(false); 
       setCallAccepted(true);
@@ -105,11 +123,12 @@ const ContextProvider = ({ children }) => {
         try {
           connectionRef.current.signal(signal);
         } catch (err) {
-          console.error("Error applying trickle candidate in callAccepted:", err);
+          console.error("Error applying candidate signal in callAccepted:", err);
         }
       }
     });
 
+    // Handle End Call Signals from Remote Peer
     socket.on('callEnded', () => {
       setCallEnded(true);
       setCallAccepted(false);
@@ -118,13 +137,11 @@ const ContextProvider = ({ children }) => {
       setRemoteStream(null);
       setMessages([]); 
       candidateQueue.current = []; 
+      
       if (connectionRef.current) {
         connectionRef.current.destroy();
         connectionRef.current = null; 
       }
-      setTimeout(() => {
-        alert("The other participant has left the call.");
-      }, 100);
     });
 
     return () => {
@@ -141,28 +158,27 @@ const ContextProvider = ({ children }) => {
     };
   }, [user]);
 
+  // Answer Incoming Call
   const answerCall = () => {
     setCallAccepted(true);
+    setCallEnded(false);
+
     const peer = new Peer({ 
       initiator: false, 
       trickle: true, 
-      stream: stream || undefined,
-      config: { 
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' }, 
-          { urls: 'stun:stun1.l.google.com:19302' },
-          { urls: 'stun:stun2.l.google.com:19302' },
-          { urls: 'stun:global.stun.twilio.com:3478' }
-        ] 
-      }
+      stream: streamRef.current || stream || undefined,
+      config: { iceServers }
     });
 
     peer.on('signal', (data) => {
       socket.emit('answerCall', { signal: data, to: call.from });
     });
 
-    peer.on('stream', (currentStream) => {
-      setRemoteStream(currentStream);
+    peer.on('stream', (incomingStream) => {
+      setRemoteStream(incomingStream);
+      if (userVideo.current) {
+        userVideo.current.srcObject = incomingStream;
+      }
     });
 
     peer.on('data', (data) => {
@@ -175,19 +191,14 @@ const ContextProvider = ({ children }) => {
       }
     });
 
-    peer.on('close', () => {
-      console.log("Peer connection closed");
-      leaveCall();
-    });
-
-    peer.on('error', (err) => {
-      console.error("WebRTC Peer Answer Error:", err);
-    });
+    peer.on('close', () => leaveCall());
+    peer.on('error', (err) => console.error("WebRTC Peer Answer Error:", err));
 
     if (call.signal) {
       peer.signal(call.signal);
     }
 
+    // Flush any pending candidates queued before peer instantiation
     candidateQueue.current.forEach((cand) => {
       try {
         peer.signal(cand);
@@ -200,6 +211,7 @@ const ContextProvider = ({ children }) => {
     connectionRef.current = peer;
   };
 
+  // Initiate Outgoing Call
   const callUser = (idToCall) => {
     if (!idToCall) {
       alert("Please enter a valid ID to call!");
@@ -208,28 +220,30 @@ const ContextProvider = ({ children }) => {
 
     setCall({ to: idToCall });
     setIsCalling(true);
+    setCallEnded(false);
     candidateQueue.current = []; 
 
     const peer = new Peer({ 
       initiator: true, 
       trickle: true, 
-      stream: stream || undefined,
-      config: { 
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' }, 
-          { urls: 'stun:stun1.l.google.com:19302' },
-          { urls: 'stun:stun2.l.google.com:19302' },
-          { urls: 'stun:global.stun.twilio.com:3478' }
-        ] 
-      }
+      stream: streamRef.current || stream || undefined,
+      config: { iceServers }
     });
 
     peer.on('signal', (data) => {
-      socket.emit('callUser', { userToCall: idToCall, signalData: data, from: me, name: user?.firstName || 'User' });
+      socket.emit('callUser', { 
+        userToCall: idToCall, 
+        signalData: data, 
+        from: me, 
+        name: user?.firstName || 'User' 
+      });
     });
 
-    peer.on('stream', (currentStream) => {
-      setRemoteStream(currentStream);
+    peer.on('stream', (incomingStream) => {
+      setRemoteStream(incomingStream);
+      if (userVideo.current) {
+        userVideo.current.srcObject = incomingStream;
+      }
     });
 
     peer.on('data', (data) => {
@@ -242,18 +256,13 @@ const ContextProvider = ({ children }) => {
       }
     });
 
-    peer.on('close', () => {
-      console.log("Peer connection closed");
-      leaveCall();
-    });
-
-    peer.on('error', (err) => {
-      console.error("WebRTC Peer Call Error:", err);
-    });
+    peer.on('close', () => leaveCall());
+    peer.on('error', (err) => console.error("WebRTC Peer Call Error:", err));
 
     connectionRef.current = peer;
   };
 
+  // Leave / End Call Session
   const leaveCall = () => {
     setIsCalling(false); 
     setCallEnded(true);
@@ -273,6 +282,7 @@ const ContextProvider = ({ children }) => {
     }
   };
 
+  // Send P2P Text Messages
   const sendMessage = (text) => {
     const msgObj = { text, sender: user?.firstName || 'Guest' };
     
@@ -283,9 +293,11 @@ const ContextProvider = ({ children }) => {
     }
   };
 
+  // Toggle Mute Audio
   const toggleAudio = () => {
-    if (stream) {
-      const audioTrack = stream.getAudioTracks()[0];
+    const activeStream = streamRef.current || stream;
+    if (activeStream) {
+      const audioTrack = activeStream.getAudioTracks()[0];
       if (audioTrack) {
         audioTrack.enabled = !audioTrack.enabled;
         setIsAudioMuted(!audioTrack.enabled);
@@ -293,9 +305,11 @@ const ContextProvider = ({ children }) => {
     }
   };
 
+  // Toggle Camera On/Off
   const toggleVideo = () => {
-    if (stream) {
-      const videoTrack = stream.getVideoTracks()[0];
+    const activeStream = streamRef.current || stream;
+    if (activeStream) {
+      const videoTrack = activeStream.getVideoTracks()[0];
       if (videoTrack) {
         videoTrack.enabled = !videoTrack.enabled;
         setIsVideoOff(!videoTrack.enabled);
@@ -303,27 +317,31 @@ const ContextProvider = ({ children }) => {
     }
   };
 
+  // Screen Share Handler
   const shareScreen = async () => {
+    const activeStream = streamRef.current || stream;
+    if (!activeStream) return;
+
     try {
       const screenStream = await navigator.mediaDevices.getDisplayMedia({ cursor: true });
       const screenTrack = screenStream.getVideoTracks()[0];
-      const cameraTrack = stream.getVideoTracks()[0];
+      const cameraTrack = activeStream.getVideoTracks()[0];
 
-      stream.removeTrack(cameraTrack);
-      stream.addTrack(screenTrack);
-      if (myVideo.current) myVideo.current.srcObject = stream;
+      activeStream.removeTrack(cameraTrack);
+      activeStream.addTrack(screenTrack);
+      if (myVideo.current) myVideo.current.srcObject = activeStream;
 
       if (connectionRef.current) {
-        connectionRef.current.replaceTrack(cameraTrack, screenTrack, stream);
+        connectionRef.current.replaceTrack(cameraTrack, screenTrack, activeStream);
       }
 
       screenTrack.onended = () => {
-        stream.removeTrack(screenTrack);
-        stream.addTrack(cameraTrack);
-        if (myVideo.current) myVideo.current.srcObject = stream;
+        activeStream.removeTrack(screenTrack);
+        activeStream.addTrack(cameraTrack);
+        if (myVideo.current) myVideo.current.srcObject = activeStream;
 
         if (connectionRef.current) {
-          connectionRef.current.replaceTrack(screenTrack, cameraTrack, stream);
+          connectionRef.current.replaceTrack(screenTrack, cameraTrack, activeStream);
         }
       };
     } catch (error) {

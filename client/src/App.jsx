@@ -121,8 +121,12 @@ function RoomLayout() {
     <>
       <SignedIn>
         <ContextProvider>
-          <div style={styles.roomContainer}>
-            <header style={{ ...styles.header, flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? '15px' : '0' }}>
+          <div style={{
+            ...styles.roomContainer,
+            height: isMobile ? 'auto' : '100vh',
+            minHeight: '100vh'
+          }}>
+            <header style={{ ...styles.header, flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? '12px' : '0' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <span style={{ fontSize: '1.5rem' }}>🌐</span>
                 <h2 style={{ margin: 0, color: '#fff', fontSize: '1.2rem' }}>NetMeet Live Room</h2>
@@ -143,10 +147,10 @@ function RoomLayout() {
               flex: 1,
               minHeight: 0
             }}>
-              <div style={{ overflowY: 'auto', flex: isMobile ? 'none' : 1 }}>
+              <div style={{ height: isMobile ? '450px' : '100%', flex: isMobile ? 'none' : 1 }}>
                 <VideoPlayer isMobile={isMobile} />
               </div>
-              <div style={{ height: isMobile ? '500px' : '100%', minHeight: '400px' }}>
+              <div style={{ height: isMobile ? '450px' : '100%', minHeight: '350px' }}>
                 <ChatBox />
               </div>
             </div>
@@ -176,7 +180,7 @@ export default function App() {
 }
 
 const styles = {
-  roomContainer: { padding: '20px', fontFamily: '"Inter", sans-serif', maxWidth: '1400px', margin: '0 auto', height: '100vh', display: 'flex', flexDirection: 'column', boxSizing: 'border-box', backgroundColor: '#070b14', color: '#e2e8f0' },
-  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#0f172a', padding: '15px 30px', borderRadius: '16px', marginBottom: '20px', boxShadow: '0 10px 25px rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.08)' },
+  roomContainer: { padding: '16px', fontFamily: '"Inter", sans-serif', maxWidth: '1400px', margin: '0 auto', display: 'flex', flexDirection: 'column', boxSizing: 'border-box', backgroundColor: '#070b14', color: '#e2e8f0' },
+  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#0f172a', padding: '12px 24px', borderRadius: '16px', marginBottom: '16px', boxShadow: '0 10px 25px rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.08)' },
   leaveRoomBtn: { backgroundColor: 'rgba(239, 68, 68, 0.2)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.4)', padding: '8px 18px', borderRadius: '20px', cursor: 'pointer', fontWeight: 'bold', transition: '0.2s' }
 };
