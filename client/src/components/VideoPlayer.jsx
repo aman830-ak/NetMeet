@@ -32,15 +32,12 @@ const VideoPlayer = () => {
 
   const callActive = callAccepted && !callEnded;
 
-  // Auto-dial logic for persistent invite links
   useEffect(() => {
     if (inviteId && isConnected && !callAccepted && !isCalling && !call.isReceivedCall) {
-      console.log("Auto-dialing host from persistent invite link:", inviteId);
       callUser(inviteId);
     }
   }, [inviteId, isConnected, callAccepted, isCalling, call.isReceivedCall, callUser]);
 
-  // Ringtone initialization and control
   useEffect(() => {
     ringtoneAudio.current = new Audio('/ringtone.mp3');
     ringtoneAudio.current.loop = true;
@@ -48,7 +45,7 @@ const VideoPlayer = () => {
 
   useEffect(() => {
     if (call.isReceivedCall && !callAccepted && !callEnded) {
-      ringtoneAudio.current?.play().catch(err => console.log("Browser blocked autoplay:", err));
+      ringtoneAudio.current?.play().catch(err => console.log("Autoplay blocked:", err));
     } else {
       if (ringtoneAudio.current) {
         ringtoneAudio.current.pause();
@@ -57,18 +54,16 @@ const VideoPlayer = () => {
     }
   }, [call.isReceivedCall, callAccepted, callEnded]);
 
-  // Bind local video stream cleanly
   useEffect(() => {
     if (myVideo.current && stream) {
       myVideo.current.srcObject = stream;
     }
   }, [stream, cameraError, myVideo]);
 
-  // Bind remote video stream & force play for mobile WebRTC compliance
   useEffect(() => {
     if (userVideo.current && remoteStream) {
       userVideo.current.srcObject = remoteStream;
-      userVideo.current.play().catch(err => console.log("Remote video play error:", err));
+      userVideo.current.play().catch(err => console.log("Remote play error:", err));
     }
   }, [remoteStream, callActive, userVideo]);
 
@@ -84,7 +79,6 @@ const VideoPlayer = () => {
   const handleSendMessage = (e) => {
     e.preventDefault();
     if (!message.trim()) return;
-    
     sendMessage(message.trim());
     setMessage('');
   };
@@ -105,7 +99,7 @@ const VideoPlayer = () => {
         </div>
       )}
 
-      {/* MAIN VIDEO DISPLAY AREA */}
+      {/* MAIN VIDEO AREA */}
       <div className="relative flex-1 h-full bg-[#0a0c10] overflow-hidden">
         
         {/* TOP HEADER */}
@@ -166,7 +160,7 @@ const VideoPlayer = () => {
         )}
 
         {/* LOCAL VIDEO PiP */}
-        <div className="absolute bottom-24 right-4 md:bottom-28 md:right-8 w-28 md:w-44 aspect-[3/4] bg-slate-900 rounded-2xl overflow-hidden shadow-[0_10px_40px_rgba(0,0,0,0.5)] border-2 border-slate-700/80 z-30 flex items-center justify-center group">
+        <div className="absolute bottom-28 right-4 md:bottom-28 md:right-8 w-28 md:w-44 aspect-[3/4] bg-slate-900 rounded-2xl overflow-hidden shadow-[0_10px_40px_rgba(0,0,0,0.5)] border-2 border-slate-700/80 z-30 flex items-center justify-center group">
           <div className="absolute top-2 left-2 z-10 bg-black/50 backdrop-blur-sm px-2 py-1 rounded-md">
             <span className="text-[10px] font-medium text-white">You</span>
           </div>
@@ -189,8 +183,8 @@ const VideoPlayer = () => {
           )}
         </div>
 
-        {/* BOTTOM CONTROL DOCK */}
-        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center justify-center space-x-2 sm:space-x-3 bg-black/70 backdrop-blur-xl px-4 sm:px-6 py-2.5 sm:py-3 rounded-full border border-white/10 shadow-2xl max-w-[92vw]">
+        {/* 🔥 FIXED BOTTOM CONTROL DOCK (Lifted to bottom-12 for mobile frame visibility) */}
+        <div className="absolute bottom-12 sm:bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center justify-center space-x-2 sm:space-x-3 bg-black/80 backdrop-blur-xl px-4 sm:px-6 py-2.5 sm:py-3 rounded-full border border-white/10 shadow-2xl max-w-[92vw]">
           <button onClick={toggleAudio} className={`flex items-center justify-center p-3 sm:p-3.5 rounded-full transition-all active:scale-90 cursor-pointer ${!isAudioMuted ? 'bg-slate-700/80 hover:bg-slate-600 text-white' : 'bg-red-500 text-white shadow-[0_0_15px_rgba(239,68,68,0.5)]'}`}>
             {!isAudioMuted ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
           </button>
@@ -203,7 +197,6 @@ const VideoPlayer = () => {
             <Share2 className="w-5 h-5" />
           </button>
 
-          {/* MOBILE CHAT TOGGLE BUTTON */}
           <button 
             onClick={() => setShowMobileChat(!showMobileChat)} 
             className={`flex lg:hidden items-center justify-center p-3 sm:p-3.5 rounded-full transition-all active:scale-90 cursor-pointer ${showMobileChat ? 'bg-indigo-600 text-white' : 'bg-slate-700/80 text-white'}`}
@@ -223,7 +216,7 @@ const VideoPlayer = () => {
         </div>
       </div>
 
-      {/* RIGHT SIDEBAR CHAT (DESKTOP & MOBILE OVERLAY) */}
+      {/* RIGHT SIDEBAR CHAT */}
       <div className={`
         bg-[#11131a] border-l border-slate-800/80 flex-col h-full z-[300] lg:z-40 shadow-2xl transition-all duration-300
         ${showMobileChat ? 'fixed inset-0 w-full flex' : 'hidden lg:flex w-80 md:w-96'}

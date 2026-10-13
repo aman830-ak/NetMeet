@@ -7,15 +7,24 @@ const rateLimit = require('express-rate-limit');
 const app = express();
 
 app.use(cors());
-// 🔥 Required to parse incoming JSON payload from the frontend form
 app.use(express.json()); 
 
 const PORT = process.env.PORT || 4000; 
 
 // ==========================================
+// HEALTH CHECK ENDPOINTS
+// ==========================================
+app.get('/', (req, res) => {
+  res.status(200).send('NetMeet WebRTC Signaling Server is active');
+});
+
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok', uptime: process.uptime() });
+});
+
+// ==========================================
 // FORM SPAM PROTECTION & VALIDATION
 // ==========================================
-
 const formLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, 
   max: 3,
@@ -47,7 +56,6 @@ app.post('/api/contact', formLimiter, (req, res) => {
 // ==========================================
 // SOCKET.IO WEBRTC SIGNALING
 // ==========================================
-
 const server = http.createServer(app);
 const io = new Server(server, { 
   cors: {
@@ -65,24 +73,25 @@ const socketRooms = {}; // Tracks persistent room associations for reconnections
 io.on("connection", (socket) => {
   socket.emit("me", socket.id);
 
-  // 🔥 Allows users to join a persistent room based on a stable token/ID
+  // Join persistent room based on Clerk User ID or socket fallback
   socket.on("joinRoom", ({ roomId }) => {
-    socket.join(roomId);
-    socketRooms[socket.id] = roomId;
-    console.log(`Socket ${socket.id} joined persistent room: ${roomId}`);
-    
-    // Notify others in the room that a peer is ready
-    socket.to(roomId).emit("peerJoined", { socketId: socket.id });
+    if (roomId) {
+      socket.join(roomId);
+      socketRooms[socket.id] = roomId;
+      console.log(`Socket ${socket.id} joined persistent room: ${roomId}`);
+      
+      socket.to(roomId).emit("peerJoined", { socketId: socket.id });
+    }
   });
 
   socket.on("callUser", ({ userToCall, signalData, from, name }) => {
-    io.to(userToCall).emit("callUser", { signal: signalData, from, name });
+    socket.to(userToCall).emit("callUser", { signal: signalData, from, name });
   });
 
   socket.on("answerCall", (data) => {
     activeCalls[socket.id] = data.to;
     activeCalls[data.to] = socket.id;
-    io.to(data.to).emit("callAccepted", data.signal);
+    socket.to(data.to).emit("callAccepted", data.signal);
   });
 
   socket.on("sendMessage", (messageData) => {
@@ -98,14 +107,14 @@ io.on("connection", (socket) => {
     delete activeCalls[socket.id];
     delete activeCalls[to];
     if (to) {
-      io.to(to).emit("callEnded");
+      socket.to(to).emit("callEnded");
     }
   });
 
   socket.on("disconnect", () => {
     const partnerId = activeCalls[socket.id];
     if (partnerId) {
-      io.to(partnerId).emit("callEnded");
+      socket.to(partnerId).emit("callEnded");
       delete activeCalls[partnerId];
       delete activeCalls[socket.id];
     }
