@@ -1,13 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
-import { UserButton, SignedIn, SignedOut, RedirectToSignIn } from '@clerk/clerk-react';
+import { SignedIn, SignedOut, RedirectToSignIn } from '@clerk/clerk-react';
+
+// Pages & Components
 import LandingPage from './pages/LandingPage';
+import Dashboard from './pages/Dashboard';
 import VideoPlayer from './components/VideoPlayer';
-import ChatBox from './components/ChatBox';
-import { ContextProvider } from './context/SocketContext';
+import PreJoinLobby from './components/PreJoinLobby';
 import NotFound from './components/NotFound';
 import Privacy from './pages/Privacy';
 import ThankYou from './pages/ThankYou';
+import YouLeft from './pages/YouLeft';
+import { ContextProvider } from './context/SocketContext';
 
 function SEOManager() {
   const location = useLocation();
@@ -73,6 +77,19 @@ function SEOManager() {
         "Join me in this secure, zero-latency peer-to-peer NetMeet video room.", 
         roomImage
       );
+    } else if (location.pathname === '/dashboard') {
+      setSEO(
+        "Dashboard | NetMeet",
+        "Manage your secure video meetings.",
+        defaultImage
+      );
+    } else if (location.pathname === '/left') {
+      setSEO(
+        "You Left the Meeting | NetMeet",
+        "You have left the meeting.",
+        defaultImage,
+        "noindex, nofollow"
+      );
     } else if (location.pathname === '/') {
       setSEO(
         "NetMeet | Secure Open-Source Video Calls", 
@@ -97,64 +114,37 @@ function HomeOrRedirect() {
   const params = new URLSearchParams(location.search);
   
   useEffect(() => {
+    // If someone clicks a direct invite link, send them straight to the room
     if (params.has('invite')) {
       navigate(`/room${location.search}`, { replace: true });
     }
   }, [location, navigate, params]);
 
   if (params.has('invite')) return null;
-
-  return <LandingPage onGetStarted={() => navigate('/room')} />;
+  
+  // Otherwise, "Get Started" takes them to the new Dashboard lobby
+  return <LandingPage onGetStarted={() => navigate('/dashboard')} />;
 }
 
+// RoomLayout intercepts the user with the PreJoinLobby before rendering the actual VideoPlayer
 function RoomLayout() {
-  const [isMobile, setIsMobile] = useState(window.innerWidth <= 900);
-  const navigate = useNavigate();
+  const [hasJoined, setHasJoined] = useState(false);
+  const [meetingSettings, setMeetingSettings] = useState(null);
 
-  useEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth <= 900);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
+  const handleJoin = (settings) => {
+    setMeetingSettings(settings); // Holds the user's name, mic, and camera preferences
+    setHasJoined(true); // Triggers the render of the actual live meeting room
+  };
 
   return (
     <>
       <SignedIn>
         <ContextProvider>
-          <div style={{
-            ...styles.roomContainer,
-            height: isMobile ? 'auto' : '100vh',
-            minHeight: '100vh'
-          }}>
-            <header style={{ ...styles.header, flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? '12px' : '0' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <span style={{ fontSize: '1.5rem' }}>🌐</span>
-                <h2 style={{ margin: 0, color: '#fff', fontSize: '1.2rem' }}>NetMeet Live Room</h2>
-              </div>
-              <div style={{ display: 'flex', gap: '15px', alignItems: 'center', width: isMobile ? '100%' : 'auto', justifyContent: isMobile ? 'space-between' : 'flex-end' }}>
-                <button onClick={() => navigate('/')} style={styles.leaveRoomBtn}>
-                  Exit Room
-                </button>
-                <UserButton />
-              </div>
-            </header>
-
-            <div style={{
-              display: isMobile ? 'flex' : 'grid',
-              flexDirection: isMobile ? 'column' : 'row',
-              gridTemplateColumns: isMobile ? 'none' : '7fr 3fr',
-              gap: '20px',
-              flex: 1,
-              minHeight: 0
-            }}>
-              <div style={{ height: isMobile ? '450px' : '100%', flex: isMobile ? 'none' : 1 }}>
-                <VideoPlayer isMobile={isMobile} />
-              </div>
-              <div style={{ height: isMobile ? '450px' : '100%', minHeight: '350px' }}>
-                <ChatBox />
-              </div>
-            </div>
-          </div>
+          {!hasJoined ? (
+            <PreJoinLobby onJoin={handleJoin} />
+          ) : (
+            <VideoPlayer />
+          )}
         </ContextProvider>
       </SignedIn>
       <SignedOut>
@@ -170,17 +160,13 @@ export default function App() {
       <SEOManager />
       <Routes>
         <Route path="/" element={<HomeOrRedirect />} />
+        <Route path="/dashboard" element={<Dashboard />} /> 
         <Route path="/room" element={<RoomLayout />} />
+        <Route path="/left" element={<YouLeft />} />
         <Route path="/privacy" element={<Privacy />} />
         <Route path="/thank-you" element={<ThankYou />} />
-        <Route path="*" element={<NotFound title="404 - Room Not Found" message="The meeting URL you entered is invalid, missing, or has expired." />} />
+        <Route path="*" element={<NotFound title="404" message="Page not found" />} />
       </Routes>
     </Router>
   );
 }
-
-const styles = {
-  roomContainer: { padding: '16px', fontFamily: '"Inter", sans-serif', maxWidth: '1400px', margin: '0 auto', display: 'flex', flexDirection: 'column', boxSizing: 'border-box', backgroundColor: '#070b14', color: '#e2e8f0' },
-  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#0f172a', padding: '12px 24px', borderRadius: '16px', marginBottom: '16px', boxShadow: '0 10px 25px rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.08)' },
-  leaveRoomBtn: { backgroundColor: 'rgba(239, 68, 68, 0.2)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.4)', padding: '8px 18px', borderRadius: '20px', cursor: 'pointer', fontWeight: 'bold', transition: '0.2s' }
-};

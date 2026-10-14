@@ -35,17 +35,24 @@ const ContextProvider = ({ children }) => {
   const streamRef = useRef(null); 
   
   const candidateQueue = useRef([]); 
-
-  // Persistent Room ID based on Clerk user ID or volatile socket ID fallback
   const persistentRoomId = user?.id || me;
 
   const iceServers = [
     { urls: 'stun:stun.l.google.com:19302' }, 
     { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
-    { urls: 'stun:stun3.l.google.com:19302' },
-    { urls: 'stun:global.stun.twilio.com:3478' }
+    { urls: 'stun:stun2.l.google.com:19302' }
   ];
+
+  const getFormattedTime = () => {
+    return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+
+  const addSystemMessage = (text, senderName) => {
+    setMessages(prev => [
+      ...prev,
+      { isSystem: true, text, sender: senderName || 'Guest', time: getFormattedTime() }
+    ]);
+  };
 
   useEffect(() => {
     let isMounted = true; 
@@ -73,40 +80,24 @@ const ContextProvider = ({ children }) => {
       leaveCall(); 
     });
 
-    // Acquire Local Camera / Microphone Stream
-    navigator.mediaDevices.getUserMedia({ 
-      video: { 
-        facingMode: "user",
-        width: { ideal: 1280 },
-        height: { ideal: 720 }
-      },
-      audio: true 
-    })
+    navigator.mediaDevices.getUserMedia({ video: true, audio: true })
       .then((currentStream) => {
-        if (!isMounted) {
-          currentStream.getTracks().forEach(track => track.stop());
-          return;
-        }
+        if (!isMounted) return;
         streamRef.current = currentStream; 
         setStream(currentStream);
         setCameraError(false);
-
-        if (myVideo.current) {
-          myVideo.current.srcObject = currentStream;
-        }
       })
       .catch((err) => {
         console.error("Camera permission error:", err);
         setCameraError(true); 
       });
 
-    // Handle Incoming Calls
     socket.on('callUser', ({ from, name: callerName, signal }) => {
       if (connectionRef.current) {
         try {
           connectionRef.current.signal(signal);
         } catch (err) {
-          console.error("Error applying candidate signal in callUser:", err);
+          console.error("Error signaling:", err);
         }
       } else if (signal && signal.type === 'offer') {
         setCall({ isReceivedCall: true, from, name: callerName, signal });
@@ -115,27 +106,26 @@ const ContextProvider = ({ children }) => {
       }
     });
 
-    // Handle Accepted Calls
     socket.on('callAccepted', (signal) => {
       setIsCalling(false); 
       setCallAccepted(true);
+      addSystemMessage("Joined Free meeting", call.name || "Guest");
       if (connectionRef.current) {
         try {
           connectionRef.current.signal(signal);
         } catch (err) {
-          console.error("Error applying candidate signal in callAccepted:", err);
+          console.error("Error signaling callAccepted:", err);
         }
       }
     });
 
-    // Handle End Call Signals from Remote Peer
     socket.on('callEnded', () => {
+      addSystemMessage("Left Free meeting", call.name || "Guest");
       setCallEnded(true);
       setCallAccepted(false);
       setCall({}); 
       setIsCalling(false); 
       setRemoteStream(null);
-      setMessages([]); 
       candidateQueue.current = []; 
       
       if (connectionRef.current) {
@@ -152,16 +142,13 @@ const ContextProvider = ({ children }) => {
       socket.off('callUser');
       socket.off('callAccepted');
       socket.off('callEnded');
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
-      }
     };
   }, [user]);
 
-  // Answer Incoming Call
   const answerCall = () => {
     setCallAccepted(true);
     setCallEnded(false);
+    addSystemMessage("Joined Free meeting", call.name || "Guest");
 
     const peer = new Peer({ 
       initiator: false, 
@@ -176,52 +163,33 @@ const ContextProvider = ({ children }) => {
 
     peer.on('stream', (incomingStream) => {
       setRemoteStream(incomingStream);
-      if (userVideo.current) {
-        userVideo.current.srcObject = incomingStream;
-      }
     });
 
     peer.on('data', (data) => {
       try {
         const messageStr = data instanceof Uint8Array ? new TextDecoder("utf-8").decode(data) : data.toString();
         const parsedData = JSON.parse(messageStr);
-        setMessages((prev) => [...prev, parsedData]);
+        setMessages((prev) => [...prev, { ...parsedData, time: getFormattedTime() }]);
       } catch (err) {
-        console.error("Error decoding P2P message:", err);
+        console.error("P2P decode error:", err);
       }
     });
 
     peer.on('close', () => leaveCall());
-    peer.on('error', (err) => console.error("WebRTC Peer Answer Error:", err));
+    if (call.signal) peer.signal(call.signal);
 
-    if (call.signal) {
-      peer.signal(call.signal);
-    }
-
-    // Flush any pending candidates queued before peer instantiation
-    candidateQueue.current.forEach((cand) => {
-      try {
-        peer.signal(cand);
-      } catch (err) {
-        console.error("Error flushing candidate:", err);
-      }
-    });
+    candidateQueue.current.forEach(cand => peer.signal(cand));
     candidateQueue.current = [];
 
     connectionRef.current = peer;
   };
 
-  // Initiate Outgoing Call
   const callUser = (idToCall) => {
-    if (!idToCall) {
-      alert("Please enter a valid ID to call!");
-      return;
-    }
+    if (!idToCall) return alert("Enter valid ID!");
 
     setCall({ to: idToCall });
     setIsCalling(true);
     setCallEnded(false);
-    candidateQueue.current = []; 
 
     const peer = new Peer({ 
       initiator: true, 
@@ -235,117 +203,110 @@ const ContextProvider = ({ children }) => {
         userToCall: idToCall, 
         signalData: data, 
         from: me, 
-        name: user?.firstName || 'User' 
+        name: user?.firstName || 'Aman' 
       });
     });
 
     peer.on('stream', (incomingStream) => {
       setRemoteStream(incomingStream);
-      if (userVideo.current) {
-        userVideo.current.srcObject = incomingStream;
-      }
     });
 
     peer.on('data', (data) => {
       try {
         const messageStr = data instanceof Uint8Array ? new TextDecoder("utf-8").decode(data) : data.toString();
         const parsedData = JSON.parse(messageStr);
-        setMessages((prev) => [...prev, parsedData]);
+        setMessages((prev) => [...prev, { ...parsedData, time: getFormattedTime() }]);
       } catch (err) {
-        console.error("Error decoding P2P message:", err);
+        console.error("P2P decode error:", err);
       }
     });
 
     peer.on('close', () => leaveCall());
-    peer.on('error', (err) => console.error("WebRTC Peer Call Error:", err));
-
     connectionRef.current = peer;
   };
 
-  // Leave / End Call Session
   const leaveCall = () => {
-    setIsCalling(false); 
-    setCallEnded(true);
     const recipient = call.from || call.to;
     if (recipient) {
       socket.emit("endCall", { to: recipient });
     }
-    setRemoteStream(null);
+    setCallEnded(true);
     setCallAccepted(false);
+    setRemoteStream(null);
     setCall({});
-    setMessages([]); 
-    candidateQueue.current = []; 
-    
     if (connectionRef.current) {
       connectionRef.current.destroy();
       connectionRef.current = null;
     }
   };
 
-  // Send P2P Text Messages
   const sendMessage = (text) => {
-    const msgObj = { text, sender: user?.firstName || 'Guest' };
-    
+    const msgObj = { text, sender: user?.firstName || 'Aman', time: getFormattedTime() };
     setMessages((prev) => [...prev, { ...msgObj, sender: 'You' }]);
-    
     if (connectionRef.current) {
       connectionRef.current.send(JSON.stringify(msgObj));
     }
   };
 
-  // Toggle Mute Audio
   const toggleAudio = () => {
     const activeStream = streamRef.current || stream;
     if (activeStream) {
-      const audioTrack = activeStream.getAudioTracks()[0];
-      if (audioTrack) {
-        audioTrack.enabled = !audioTrack.enabled;
-        setIsAudioMuted(!audioTrack.enabled);
+      const track = activeStream.getAudioTracks()[0];
+      if (track) {
+        track.enabled = !track.enabled;
+        setIsAudioMuted(!track.enabled);
       }
     }
   };
 
-  // Toggle Camera On/Off
   const toggleVideo = () => {
     const activeStream = streamRef.current || stream;
     if (activeStream) {
-      const videoTrack = activeStream.getVideoTracks()[0];
-      if (videoTrack) {
-        videoTrack.enabled = !videoTrack.enabled;
-        setIsVideoOff(!videoTrack.enabled);
+      const track = activeStream.getVideoTracks()[0];
+      if (track) {
+        track.enabled = !track.enabled;
+        setIsVideoOff(!track.enabled);
       }
     }
   };
 
-  // Screen Share Handler
-  const shareScreen = async () => {
+  // 🔥 FIX: Cleaned up track swapping so camera track never dies on cancel
+  const shareScreen = async (onStopCallback) => {
     const activeStream = streamRef.current || stream;
-    if (!activeStream) return;
-
+    if (!activeStream) return null;
+    
     try {
       const screenStream = await navigator.mediaDevices.getDisplayMedia({ cursor: true });
       const screenTrack = screenStream.getVideoTracks()[0];
       const cameraTrack = activeStream.getVideoTracks()[0];
 
-      activeStream.removeTrack(cameraTrack);
-      activeStream.addTrack(screenTrack);
-      if (myVideo.current) myVideo.current.srcObject = activeStream;
-
+      // 1. Send screen to remote peer
       if (connectionRef.current) {
         connectionRef.current.replaceTrack(cameraTrack, screenTrack, activeStream);
       }
 
-      screenTrack.onended = () => {
-        activeStream.removeTrack(screenTrack);
-        activeStream.addTrack(cameraTrack);
-        if (myVideo.current) myVideo.current.srcObject = activeStream;
+      // 2. Show screen locally (forcing UI refresh)
+      if (myVideo.current) {
+        myVideo.current.srcObject = null; 
+        myVideo.current.srcObject = screenStream;
+      }
 
+      // 3. Handle stop sharing (reverts seamlessly back to camera)
+      screenTrack.onended = () => {
         if (connectionRef.current) {
           connectionRef.current.replaceTrack(screenTrack, cameraTrack, activeStream);
         }
+        if (myVideo.current) {
+          myVideo.current.srcObject = null;
+          myVideo.current.srcObject = activeStream;
+        }
+        if (onStopCallback) onStopCallback(); 
       };
-    } catch (error) {
-      console.log("Screen sharing cancelled or failed:", error);
+
+      return screenTrack;
+    } catch (err) {
+      console.log("Screen share cancelled", err);
+      return null; // Return null so frontend knows to ignore it
     }
   };
 
