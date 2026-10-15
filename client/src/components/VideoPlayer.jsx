@@ -315,6 +315,3 @@ export default function VideoPlayer({ meetingSettings }) {
     </div>
   );
 }
-<ElicitationsGroup>
-  <Elicitation intent="Verify UI Rendering" question="Does the bottom control bar now render perfectly on your mobile screen without cutting off the 'Leave' button?"/>
-</ElicitationsGroup>
