@@ -6,8 +6,13 @@ import Peer from 'simple-peer';
 const SocketContext = createContext();
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:4000';
+
+// 🔥 FIX: 'polling' MUST come before 'websocket' to fix the Render drop-off error
 const socket = io(BACKEND_URL, {
-  transports: ['websocket', 'polling']
+  transports: ['polling', 'websocket'],
+  reconnection: true,
+  reconnectionAttempts: 10,
+  reconnectionDelay: 1000,
 });
 
 const ContextProvider = ({ children }) => {
@@ -255,8 +260,10 @@ const ContextProvider = ({ children }) => {
       if (track) {
         track.enabled = !track.enabled;
         setIsAudioMuted(!track.enabled);
+        return !track.enabled; // Return new state
       }
     }
+    return isAudioMuted;
   };
 
   const toggleVideo = () => {
@@ -266,11 +273,12 @@ const ContextProvider = ({ children }) => {
       if (track) {
         track.enabled = !track.enabled;
         setIsVideoOff(!track.enabled);
+        return !track.enabled; // Return new state
       }
     }
+    return isVideoOff;
   };
 
-  // 🔥 FIX: Cleaned up track swapping so camera track never dies on cancel
   const shareScreen = async (onStopCallback) => {
     const activeStream = streamRef.current || stream;
     if (!activeStream) return null;
@@ -280,18 +288,15 @@ const ContextProvider = ({ children }) => {
       const screenTrack = screenStream.getVideoTracks()[0];
       const cameraTrack = activeStream.getVideoTracks()[0];
 
-      // 1. Send screen to remote peer
       if (connectionRef.current) {
         connectionRef.current.replaceTrack(cameraTrack, screenTrack, activeStream);
       }
 
-      // 2. Show screen locally (forcing UI refresh)
       if (myVideo.current) {
         myVideo.current.srcObject = null; 
         myVideo.current.srcObject = screenStream;
       }
 
-      // 3. Handle stop sharing (reverts seamlessly back to camera)
       screenTrack.onended = () => {
         if (connectionRef.current) {
           connectionRef.current.replaceTrack(screenTrack, cameraTrack, activeStream);
@@ -306,7 +311,7 @@ const ContextProvider = ({ children }) => {
       return screenTrack;
     } catch (err) {
       console.log("Screen share cancelled", err);
-      return null; // Return null so frontend knows to ignore it
+      return null; 
     }
   };
 
