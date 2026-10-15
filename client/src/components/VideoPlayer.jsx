@@ -107,14 +107,19 @@ export default function VideoPlayer({ meetingSettings }) {
     sendMessage(messageInput.trim());
     setMessageInput('');
   };
-
   const copyMeetingLink = () => {
-    navigator.clipboard.writeText(window.location.href);
+    let linkToCopy = window.location.href;
+    
+    if (!linkToCopy.includes('invite=')) {
+      const baseUrl = window.location.origin + window.location.pathname;
+      linkToCopy = `${baseUrl}?invite=${persistentRoomId}`;
+    }
+    
+    navigator.clipboard.writeText(linkToCopy);
     setCopied(true);
     setShowMoreMenu(false);
     setTimeout(() => setCopied(false), 2000);
   };
-
   const getInitials = (n) => n ? n.charAt(0).toUpperCase() : 'U';
 
   const visibleMessages = messages.filter(msg => msg.text && !msg.text.startsWith('EMOJI_PAYLOAD:'));
