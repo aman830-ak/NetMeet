@@ -47,6 +47,9 @@ const ContextProvider = ({ children }) => {
   const streamRef = useRef(null); 
   const candidateQueue = useRef([]); 
   const fnsRef = useRef({}); 
+  
+  // 🔥 FIX 1: Track latest call state for the unmount closure
+  const callRef = useRef({});
 
   const urlParams = new URLSearchParams(window.location.search);
   const inviteId = urlParams.get('invite');
@@ -57,6 +60,11 @@ const ContextProvider = ({ children }) => {
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun2.l.google.com:19302' }
   ];
+
+  // Update callRef whenever call state changes
+  useEffect(() => {
+    callRef.current = call;
+  }, [call]);
 
   const getFormattedTime = () => {
     return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -169,7 +177,8 @@ const ContextProvider = ({ children }) => {
   };
 
   const leaveCall = () => {
-    const recipient = call.from || call.to;
+    // 🔥 FIX 2: Use callRef so we ALWAYS get the recipient ID even if state is stale
+    const recipient = callRef.current.from || callRef.current.to;
     if (recipient) {
       socket.emit("endCall", { to: recipient });
     }
@@ -185,7 +194,6 @@ const ContextProvider = ({ children }) => {
       connectionRef.current = null;
     }
 
-    // 🔥 MORE AGGRESSIVE HARDWARE KILLSWITCH
     if (streamRef.current) {
       const tracks = streamRef.current.getTracks();
       tracks.forEach((track) => {
@@ -195,18 +203,22 @@ const ContextProvider = ({ children }) => {
       streamRef.current = null;
     }
     
-    if (stream) {
-      stream.getTracks().forEach(track => track.stop());
-      setStream(null);
-    }
+    // Fallback stream wipe
+    setStream((prevStream) => {
+      if (prevStream) prevStream.getTracks().forEach(t => t.stop());
+      return null;
+    });
     
-    if (myVideo.current) {
-      myVideo.current.srcObject = null;
-    }
-    if (userVideo.current) {
-       userVideo.current.srcObject = null;
-    }
+    if (myVideo.current) myVideo.current.srcObject = null;
+    if (userVideo.current) userVideo.current.srcObject = null;
   };
+
+  // 🔥 FIX 3: Global Unmount Handler - Forces leaveCall when navigating completely away from the room layout
+  useEffect(() => {
+    return () => {
+      leaveCall();
+    };
+  }, []);
 
   fnsRef.current = { callUser, answerCall };
 
@@ -217,7 +229,6 @@ const ContextProvider = ({ children }) => {
       }
     }
   }, [call, callAccepted, callEnded, stream, cameraError]); 
-
 
   useEffect(() => {
     let isMounted = true; 
@@ -303,13 +314,8 @@ const ContextProvider = ({ children }) => {
       }
     });
 
-    const handleBeforeUnload = () => {
-      leaveCall();
-    };
-
-    const handlePopState = () => {
-      leaveCall();
-    };
+    const handleBeforeUnload = () => leaveCall();
+    const handlePopState = () => leaveCall();
 
     window.addEventListener('beforeunload', handleBeforeUnload);
     window.addEventListener('popstate', handlePopState);
