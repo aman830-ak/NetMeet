@@ -28,6 +28,13 @@ export default function VideoPlayer({ meetingSettings }) {
   const localName = meetingSettings?.name || localStorage.getItem('netmeet_name') || name || 'You';
   const remoteName = call?.name || 'Guest';
 
+  // 🔥 FIX: Ensures call drops completely if user clicks browser back button
+  useEffect(() => {
+    return () => {
+      leaveCall();
+    };
+  }, []); // Empty dependency array ensures this only runs on unmount
+
   // 1. Bind LOCAL stream to the local video element
   useEffect(() => {
     if (myVideo.current && stream) {
@@ -35,7 +42,7 @@ export default function VideoPlayer({ meetingSettings }) {
     }
   }, [stream, myVideo]);
 
-  // 🔥 FIX: 2. Bind REMOTE stream to the remote video element and force playback
+  // 2. Bind REMOTE stream to the remote video element and force playback
   useEffect(() => {
     if (userVideo.current && remoteStream) {
       userVideo.current.srcObject = remoteStream;
@@ -202,7 +209,6 @@ export default function VideoPlayer({ meetingSettings }) {
             {/* REMOTE VIDEO TILE */}
             {callAccepted && !callEnded && (
               <div className="relative bg-[#131826] rounded-2xl md:rounded-[24px] overflow-hidden shadow-2xl flex items-center justify-center w-full md:w-1/2 h-1/2 md:h-full max-h-full aspect-video md:aspect-auto">
-                 {/* 🔥 Ensure the remote video tag is here and referenced properly */}
                  <video playsInline ref={userVideo} autoPlay className="w-full h-full object-cover" />
                 
                 <div className="absolute bottom-3 left-3 md:bottom-5 md:left-5 bg-[#0b101e]/70 backdrop-blur-md px-2 md:px-3.5 py-1.5 md:py-2 rounded-lg md:rounded-xl flex items-center gap-2 border border-white/5">

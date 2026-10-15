@@ -185,17 +185,26 @@ const ContextProvider = ({ children }) => {
       connectionRef.current = null;
     }
 
-    // HARDWARE KILLSWITCH: Stop camera and mic streams entirely
+    // 🔥 MORE AGGRESSIVE HARDWARE KILLSWITCH
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => {
+      const tracks = streamRef.current.getTracks();
+      tracks.forEach((track) => {
         track.stop();
+        streamRef.current.removeTrack(track); 
       });
       streamRef.current = null;
+    }
+    
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
       setStream(null);
     }
     
     if (myVideo.current) {
       myVideo.current.srcObject = null;
+    }
+    if (userVideo.current) {
+       userVideo.current.srcObject = null;
     }
   };
 
@@ -294,7 +303,6 @@ const ContextProvider = ({ children }) => {
       }
     });
 
-    // 🔥 BROWSER NAVIGATION & BACK BUTTON FIX
     const handleBeforeUnload = () => {
       leaveCall();
     };

@@ -131,11 +131,11 @@ function RoomCleanupWrapper() {
   const [meetingSettings, setMeetingSettings] = useState(null);
 
   useEffect(() => {
-    // When this component unmounts (e.g. browser back button or route change), force-kill hardware and peer sessions
+    // 🔥 FIX: Empty dependency array ensures this cleanup ONLY runs when unmounting/navigating away
     return () => {
       leaveCall();
     };
-  }, [leaveCall]);
+  }, []); 
 
   const handleJoin = (settings) => {
     setMeetingSettings(settings);
