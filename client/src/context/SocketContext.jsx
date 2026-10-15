@@ -7,7 +7,6 @@ const SocketContext = createContext();
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:4000';
 
-// 🔥 FIX: 'polling' MUST come before 'websocket' to fix the Render drop-off error
 const socket = io(BACKEND_URL, {
   transports: ['polling', 'websocket'],
   reconnection: true,
@@ -38,9 +37,12 @@ const ContextProvider = ({ children }) => {
   const userVideo = useRef(null);
   const connectionRef = useRef(null);
   const streamRef = useRef(null); 
-  
   const candidateQueue = useRef([]); 
-  const persistentRoomId = user?.id || me;
+
+  // 🔥 FIX: Extract the invite ID from the URL so the guest joins the correct room
+  const urlParams = new URLSearchParams(window.location.search);
+  const inviteId = urlParams.get('invite');
+  const persistentRoomId = inviteId || user?.id || me;
 
   const iceServers = [
     { urls: 'stun:stun.l.google.com:19302' }, 
@@ -70,14 +72,15 @@ const ContextProvider = ({ children }) => {
     socket.on('connect', () => {
       setIsConnected(true);
       setMe(socket.id);
-      if (user?.id || socket.id) {
-        socket.emit("joinRoom", { roomId: user?.id || socket.id });
-      }
+      // 🔥 FIX: Use the invite link to join the host's room instead of an isolated room
+      const roomToJoin = inviteId || user?.id || socket.id;
+      socket.emit("joinRoom", { roomId: roomToJoin });
     });
 
     socket.on('me', (id) => {
       setMe(id);
-      socket.emit("joinRoom", { roomId: user?.id || id });
+      const roomToJoin = inviteId || user?.id || id;
+      socket.emit("joinRoom", { roomId: roomToJoin });
     });
     
     socket.on('disconnect', () => {
@@ -148,7 +151,7 @@ const ContextProvider = ({ children }) => {
       socket.off('callAccepted');
       socket.off('callEnded');
     };
-  }, [user]);
+  }, [user, inviteId]); // Added inviteId to dependency array
 
   const answerCall = () => {
     setCallAccepted(true);
@@ -260,7 +263,7 @@ const ContextProvider = ({ children }) => {
       if (track) {
         track.enabled = !track.enabled;
         setIsAudioMuted(!track.enabled);
-        return !track.enabled; // Return new state
+        return !track.enabled; 
       }
     }
     return isAudioMuted;
@@ -273,7 +276,7 @@ const ContextProvider = ({ children }) => {
       if (track) {
         track.enabled = !track.enabled;
         setIsVideoOff(!track.enabled);
-        return !track.enabled; // Return new state
+        return !track.enabled; 
       }
     }
     return isVideoOff;
@@ -320,7 +323,7 @@ const ContextProvider = ({ children }) => {
       stream, remoteStream, myVideo, userVideo, me, user, socket, isConnected, cameraError,
       call, callAccepted, callEnded, isCalling, callUser, answerCall, leaveCall,
       toggleAudio, toggleVideo, shareScreen, isAudioMuted, isVideoOff,
-      messages, sendMessage, persistentRoomId
+      messages, sendMessage, persistentRoomId, inviteId
     }}>
       {children}
     </SocketContext.Provider>
