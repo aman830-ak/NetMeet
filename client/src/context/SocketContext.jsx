@@ -185,7 +185,7 @@ const ContextProvider = ({ children }) => {
       connectionRef.current = null;
     }
 
-    // 🔥 HARDWARE KILLSWITCH: Stop camera and mic streams entirely
+    // HARDWARE KILLSWITCH: Stop camera and mic streams entirely
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => {
         track.stop();
@@ -294,8 +294,23 @@ const ContextProvider = ({ children }) => {
       }
     });
 
+    // 🔥 BROWSER NAVIGATION & BACK BUTTON FIX
+    const handleBeforeUnload = () => {
+      leaveCall();
+    };
+
+    const handlePopState = () => {
+      leaveCall();
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('popstate', handlePopState);
+
     return () => {
       isMounted = false; 
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('popstate', handlePopState);
+      
       socket.off('connect');
       socket.off('me');
       socket.off('peerJoined');

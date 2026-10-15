@@ -7,11 +7,11 @@ import LandingPage from './pages/LandingPage';
 import Dashboard from './pages/Dashboard';
 import VideoPlayer from './components/VideoPlayer';
 import PreJoinLobby from './components/PreJoinLobby';
-import NotFound from './components/NotFound';
+import NotFound from './pages/NotFound';
 import Privacy from './pages/Privacy';
 import ThankYou from './pages/ThankYou';
 import YouLeft from './pages/YouLeft';
-import { ContextProvider } from './context/SocketContext';
+import { ContextProvider, SocketContext } from './context/SocketContext';
 
 function SEOManager() {
   const location = useLocation();
@@ -114,7 +114,6 @@ function HomeOrRedirect() {
   const params = new URLSearchParams(location.search);
   
   useEffect(() => {
-    // If someone clicks a direct invite link, send them straight to the room
     if (params.has('invite')) {
       navigate(`/room${location.search}`, { replace: true });
     }
@@ -122,29 +121,44 @@ function HomeOrRedirect() {
 
   if (params.has('invite')) return null;
   
-  // Otherwise, "Get Started" takes them to the new Dashboard lobby
   return <LandingPage onGetStarted={() => navigate('/dashboard')} />;
 }
 
-// RoomLayout intercepts the user with the PreJoinLobby before rendering the actual VideoPlayer
-function RoomLayout() {
+// 🔥 Helper component to ensure hardware cuts off if user routes away or hits Back
+function RoomCleanupWrapper() {
+  const { leaveCall } = React.useContext(SocketContext);
   const [hasJoined, setHasJoined] = useState(false);
   const [meetingSettings, setMeetingSettings] = useState(null);
 
+  useEffect(() => {
+    // When this component unmounts (e.g. browser back button or route change), force-kill hardware and peer sessions
+    return () => {
+      leaveCall();
+    };
+  }, [leaveCall]);
+
   const handleJoin = (settings) => {
-    setMeetingSettings(settings); // Holds the user's name, mic, and camera preferences
-    setHasJoined(true); // Triggers the render of the actual live meeting room
+    setMeetingSettings(settings);
+    setHasJoined(true);
   };
 
   return (
     <>
+      {!hasJoined ? (
+        <PreJoinLobby onJoin={handleJoin} />
+      ) : (
+        <VideoPlayer meetingSettings={meetingSettings} />
+      )}
+    </>
+  );
+}
+
+function RoomLayout() {
+  return (
+    <>
       <SignedIn>
         <ContextProvider>
-          {!hasJoined ? (
-            <PreJoinLobby onJoin={handleJoin} />
-          ) : (
-            <VideoPlayer />
-          )}
+          <RoomCleanupWrapper />
         </ContextProvider>
       </SignedIn>
       <SignedOut>
