@@ -38,8 +38,10 @@ const ContextProvider = ({ children }) => {
   const connectionRef = useRef(null);
   const streamRef = useRef(null); 
   const candidateQueue = useRef([]); 
+  
+  // 🔥 FIX: Reference wrapper to avoid stale closures in WebSockets
+  const fnsRef = useRef({}); 
 
-  // 🔥 FIX: Extract the invite ID from the URL so the guest joins the correct room
   const urlParams = new URLSearchParams(window.location.search);
   const inviteId = urlParams.get('invite');
   const persistentRoomId = inviteId || user?.id || me;
@@ -61,107 +63,19 @@ const ContextProvider = ({ children }) => {
     ]);
   };
 
-  useEffect(() => {
-    let isMounted = true; 
-
-    if (socket.id) {
-      setIsConnected(true);
-      setMe(socket.id);
-    }
-
-    socket.on('connect', () => {
-      setIsConnected(true);
-      setMe(socket.id);
-      // 🔥 FIX: Use the invite link to join the host's room instead of an isolated room
-      const roomToJoin = inviteId || user?.id || socket.id;
-      socket.emit("joinRoom", { roomId: roomToJoin });
-    });
-
-    socket.on('me', (id) => {
-      setMe(id);
-      const roomToJoin = inviteId || user?.id || id;
-      socket.emit("joinRoom", { roomId: roomToJoin });
-    });
-    
-    socket.on('disconnect', () => {
-      setIsConnected(false);
-      leaveCall(); 
-    });
-
-    navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-      .then((currentStream) => {
-        if (!isMounted) return;
-        streamRef.current = currentStream; 
-        setStream(currentStream);
-        setCameraError(false);
-      })
-      .catch((err) => {
-        console.error("Camera permission error:", err);
-        setCameraError(true); 
-      });
-
-    socket.on('callUser', ({ from, name: callerName, signal }) => {
-      if (connectionRef.current) {
-        try {
-          connectionRef.current.signal(signal);
-        } catch (err) {
-          console.error("Error signaling:", err);
-        }
-      } else if (signal && signal.type === 'offer') {
-        setCall({ isReceivedCall: true, from, name: callerName, signal });
-      } else {
-        candidateQueue.current.push(signal);
-      }
-    });
-
-    socket.on('callAccepted', (signal) => {
-      setIsCalling(false); 
-      setCallAccepted(true);
-      addSystemMessage("Joined Free meeting", call.name || "Guest");
-      if (connectionRef.current) {
-        try {
-          connectionRef.current.signal(signal);
-        } catch (err) {
-          console.error("Error signaling callAccepted:", err);
-        }
-      }
-    });
-
-    socket.on('callEnded', () => {
-      addSystemMessage("Left Free meeting", call.name || "Guest");
-      setCallEnded(true);
-      setCallAccepted(false);
-      setCall({}); 
-      setIsCalling(false); 
-      setRemoteStream(null);
-      candidateQueue.current = []; 
-      
-      if (connectionRef.current) {
-        connectionRef.current.destroy();
-        connectionRef.current = null; 
-      }
-    });
-
-    return () => {
-      isMounted = false; 
-      socket.off('connect');
-      socket.off('me');
-      socket.off('disconnect');
-      socket.off('callUser');
-      socket.off('callAccepted');
-      socket.off('callEnded');
-    };
-  }, [user, inviteId]); // Added inviteId to dependency array
+  // =====================================
+  // CALL LOGIC
+  // =====================================
 
   const answerCall = () => {
     setCallAccepted(true);
     setCallEnded(false);
-    addSystemMessage("Joined Free meeting", call.name || "Guest");
+    addSystemMessage("Joined Secure meeting", call.name || "Guest");
 
     const peer = new Peer({ 
       initiator: false, 
       trickle: true, 
-      stream: streamRef.current || stream || undefined,
+      stream: streamRef.current || undefined,
       config: { iceServers }
     });
 
@@ -184,7 +98,10 @@ const ContextProvider = ({ children }) => {
     });
 
     peer.on('close', () => leaveCall());
-    if (call.signal) peer.signal(call.signal);
+
+    if (call.signal) {
+      peer.signal(call.signal);
+    }
 
     candidateQueue.current.forEach(cand => peer.signal(cand));
     candidateQueue.current = [];
@@ -193,7 +110,7 @@ const ContextProvider = ({ children }) => {
   };
 
   const callUser = (idToCall) => {
-    if (!idToCall) return alert("Enter valid ID!");
+    if (!idToCall) return;
 
     setCall({ to: idToCall });
     setIsCalling(true);
@@ -202,7 +119,7 @@ const ContextProvider = ({ children }) => {
     const peer = new Peer({ 
       initiator: true, 
       trickle: true, 
-      stream: streamRef.current || stream || undefined,
+      stream: streamRef.current || undefined,
       config: { iceServers }
     });
 
@@ -210,7 +127,7 @@ const ContextProvider = ({ children }) => {
       socket.emit('callUser', { 
         userToCall: idToCall, 
         signalData: data, 
-        from: me, 
+        from: me || socket.id, 
         name: user?.firstName || 'Aman' 
       });
     });
@@ -248,6 +165,22 @@ const ContextProvider = ({ children }) => {
     }
   };
 
+  // Keep references to our latest functions so Socket event listeners don't go stale
+  fnsRef.current = { callUser, answerCall };
+
+  // 🔥 FIX 2: Auto-Answer Logic
+  // When a guest receives a call offer, answer it instantly
+  useEffect(() => {
+    if (call.isReceivedCall && !callAccepted && !callEnded && call.signal) {
+      console.log("Incoming call payload detected. Auto-answering...");
+      fnsRef.current.answerCall();
+    }
+  }, [call, callAccepted, callEnded]);
+
+  // =====================================
+  // HARDWARE CONTROLS
+  // =====================================
+  
   const sendMessage = (text) => {
     const msgObj = { text, sender: user?.firstName || 'Aman', time: getFormattedTime() };
     setMessages((prev) => [...prev, { ...msgObj, sender: 'You' }]);
@@ -257,7 +190,7 @@ const ContextProvider = ({ children }) => {
   };
 
   const toggleAudio = () => {
-    const activeStream = streamRef.current || stream;
+    const activeStream = streamRef.current;
     if (activeStream) {
       const track = activeStream.getAudioTracks()[0];
       if (track) {
@@ -270,7 +203,7 @@ const ContextProvider = ({ children }) => {
   };
 
   const toggleVideo = () => {
-    const activeStream = streamRef.current || stream;
+    const activeStream = streamRef.current;
     if (activeStream) {
       const track = activeStream.getVideoTracks()[0];
       if (track) {
@@ -283,7 +216,7 @@ const ContextProvider = ({ children }) => {
   };
 
   const shareScreen = async (onStopCallback) => {
-    const activeStream = streamRef.current || stream;
+    const activeStream = streamRef.current;
     if (!activeStream) return null;
     
     try {
@@ -317,6 +250,111 @@ const ContextProvider = ({ children }) => {
       return null; 
     }
   };
+
+  // =====================================
+  // SOCKET CONNECTION & LISTENERS
+  // =====================================
+
+  useEffect(() => {
+    let isMounted = true; 
+
+    if (socket.id) {
+      setIsConnected(true);
+      setMe(socket.id);
+    }
+
+    // Join the persistent room URL ID
+    const roomToJoin = inviteId || user?.id || socket.id;
+
+    socket.on('connect', () => {
+      setIsConnected(true);
+      setMe(socket.id);
+      socket.emit("joinRoom", { roomId: roomToJoin });
+    });
+
+    socket.on('me', (id) => {
+      setMe(id);
+      socket.emit("joinRoom", { roomId: inviteId || user?.id || id });
+    });
+
+    // 🔥 FIX 1: Auto-Dial Logic 
+    // Listen for the backend emitting 'peerJoined' and call them automatically
+    socket.on('peerJoined', ({ socketId }) => {
+      console.log("A new peer joined your room! Auto-dialing:", socketId);
+      fnsRef.current.callUser(socketId);
+    });
+    
+    socket.on('disconnect', () => {
+      setIsConnected(false);
+      leaveCall(); 
+    });
+
+    navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+      .then((currentStream) => {
+        if (!isMounted) return;
+        streamRef.current = currentStream; 
+        setStream(currentStream);
+        setCameraError(false);
+      })
+      .catch((err) => {
+        console.error("Camera permission error:", err);
+        setCameraError(true); 
+      });
+
+    socket.on('callUser', ({ from, name: callerName, signal }) => {
+      if (connectionRef.current) {
+        try {
+          connectionRef.current.signal(signal);
+        } catch (err) {
+          console.error("Error signaling:", err);
+        }
+      } else if (signal && signal.type === 'offer') {
+        // Sets call state, triggering the auto-answer useEffect
+        setCall({ isReceivedCall: true, from, name: callerName, signal });
+      } else {
+        candidateQueue.current.push(signal);
+      }
+    });
+
+    socket.on('callAccepted', (signal) => {
+      setIsCalling(false); 
+      setCallAccepted(true);
+      addSystemMessage("Joined Secure meeting", call.name || "Guest");
+      if (connectionRef.current) {
+        try {
+          connectionRef.current.signal(signal);
+        } catch (err) {
+          console.error("Error signaling callAccepted:", err);
+        }
+      }
+    });
+
+    socket.on('callEnded', () => {
+      addSystemMessage("Left Secure meeting", call.name || "Guest");
+      setCallEnded(true);
+      setCallAccepted(false);
+      setCall({}); 
+      setIsCalling(false); 
+      setRemoteStream(null);
+      candidateQueue.current = []; 
+      
+      if (connectionRef.current) {
+        connectionRef.current.destroy();
+        connectionRef.current = null; 
+      }
+    });
+
+    return () => {
+      isMounted = false; 
+      socket.off('connect');
+      socket.off('me');
+      socket.off('peerJoined');
+      socket.off('disconnect');
+      socket.off('callUser');
+      socket.off('callAccepted');
+      socket.off('callEnded');
+    };
+  }, [user, inviteId]);
 
   return (
     <SocketContext.Provider value={{ 
