@@ -3,7 +3,7 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite'; 
 import { nodePolyfills } from 'vite-plugin-node-polyfills'; 
-import Sitemap from 'vite-plugin-sitemap'; // <-- Added Sitemap import
+import Sitemap from 'vite-plugin-sitemap';
 
 export default defineConfig({
   plugins: [
@@ -23,7 +23,7 @@ export default defineConfig({
         '/thank-you', 
         '/*'          
       ],
-      generateRobotsTxt: true, 
+      generateRobotsTxt: false, // 🔥 Fixed Vercel build ENOENT error
     })
   ],
 });
