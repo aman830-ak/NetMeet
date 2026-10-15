@@ -62,6 +62,11 @@ const ContextProvider = ({ children }) => {
     return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
+  // 🔥 Helper to pull the exact name entered on the Join screen
+  const getMyName = () => {
+    return localStorage.getItem('netmeet_name') || user?.firstName || 'Guest';
+  };
+
   const answerCall = () => {
     setCallAccepted(true);
     setCallEnded(false);
@@ -78,14 +83,25 @@ const ContextProvider = ({ children }) => {
     });
 
     peer.on('stream', (incomingStream) => {
-      console.log("Remote stream received!");
       setRemoteStream(incomingStream);
+    });
+
+    // 🔥 INSTANT NAME SWAP: The millisecond the P2P tunnel opens, send your name
+    peer.on('connect', () => {
+      peer.send(JSON.stringify({ type: 'NAME_UPDATE', name: getMyName() }));
     });
 
     peer.on('data', (data) => {
       try {
         const messageStr = data instanceof Uint8Array ? new TextDecoder("utf-8").decode(data) : data.toString();
         const parsedData = JSON.parse(messageStr);
+
+        // Intercept the Name Swap packet
+        if (parsedData.type === 'NAME_UPDATE') {
+          setCall(prevCall => ({ ...prevCall, name: parsedData.name }));
+          return; // Stop here so it doesn't show up in the chat window
+        }
+
         setMessages((prev) => [...prev, { ...parsedData, time: getFormattedTime() }]);
       } catch (err) {
         console.error("P2P decode error:", err);
@@ -123,19 +139,29 @@ const ContextProvider = ({ children }) => {
         userToCall: idToCall, 
         signalData: data, 
         from: me || socket.id, 
-        name: user?.firstName || 'Aman' 
+        name: getMyName() // Use the dynamic name instead of hardcoding 'Aman'
       });
     });
 
     peer.on('stream', (incomingStream) => {
-      console.log("Remote stream received!");
       setRemoteStream(incomingStream);
+    });
+
+    // 🔥 INSTANT NAME SWAP: Send name back to the answerer too
+    peer.on('connect', () => {
+      peer.send(JSON.stringify({ type: 'NAME_UPDATE', name: getMyName() }));
     });
 
     peer.on('data', (data) => {
       try {
         const messageStr = data instanceof Uint8Array ? new TextDecoder("utf-8").decode(data) : data.toString();
         const parsedData = JSON.parse(messageStr);
+
+        if (parsedData.type === 'NAME_UPDATE') {
+          setCall(prevCall => ({ ...prevCall, name: parsedData.name }));
+          return;
+        }
+
         setMessages((prev) => [...prev, { ...parsedData, time: getFormattedTime() }]);
       } catch (err) {
         console.error("P2P decode error:", err);
@@ -163,15 +189,10 @@ const ContextProvider = ({ children }) => {
 
   fnsRef.current = { callUser, answerCall };
 
-  // 🔥 FIX 1: The Race Condition Killer
-  // Wait until `stream` is actively populated by the camera before answering!
   useEffect(() => {
     if (call.isReceivedCall && !callAccepted && !callEnded && call.signal) {
       if (stream || cameraError) {
-        console.log("Camera is active. Answering the call now...");
         fnsRef.current.answerCall();
-      } else {
-        console.log("Call received, waiting for camera permissions...");
       }
     }
   }, [call, callAccepted, callEnded, stream, cameraError]); 
@@ -211,7 +232,6 @@ const ContextProvider = ({ children }) => {
     });
 
     socket.on('peerJoined', ({ socketId }) => {
-      console.log("Peer joined. Stabilizing before dial...");
       setTimeout(() => {
         fnsRef.current.callUser(socketId);
       }, 500);
@@ -275,7 +295,7 @@ const ContextProvider = ({ children }) => {
   }, [user, inviteId]);
 
   const sendMessage = (text) => {
-    const msgObj = { text, sender: user?.firstName || 'Aman', time: getFormattedTime() };
+    const msgObj = { text, sender: getMyName(), time: getFormattedTime() };
     setMessages((prev) => [...prev, { ...msgObj, sender: 'You' }]);
     if (connectionRef.current) {
       connectionRef.current.send(JSON.stringify(msgObj));
