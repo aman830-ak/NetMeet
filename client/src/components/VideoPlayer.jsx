@@ -8,9 +8,9 @@ import {
 
 export default function VideoPlayer({ meetingSettings }) {
   const { 
-    name, callAccepted, myVideo, userVideo, callEnded, stream, call, leaveCall,
+    name, callAccepted, myVideo, userVideo, callEnded, stream, remoteStream, call, leaveCall,
     toggleAudio, toggleVideo, shareScreen, isAudioMuted, isVideoOff,
-    messages, sendMessage
+    messages, sendMessage, persistentRoomId
   } = useContext(SocketContext);
   
   const navigate = useNavigate();
@@ -28,12 +28,24 @@ export default function VideoPlayer({ meetingSettings }) {
   const localName = meetingSettings?.name || localStorage.getItem('netmeet_name') || name || 'You';
   const remoteName = call?.name || 'Guest';
 
-  // Always keep myVideo element bound to current active stream
+  // 1. Bind LOCAL stream to the local video element
   useEffect(() => {
     if (myVideo.current && stream) {
       myVideo.current.srcObject = stream;
     }
   }, [stream, myVideo]);
+
+  // 🔥 FIX: 2. Bind REMOTE stream to the remote video element and force playback
+  useEffect(() => {
+    if (userVideo.current && remoteStream) {
+      userVideo.current.srcObject = remoteStream;
+      
+      // Mobile browsers often pause auto-playing video unless explicitly told to play
+      userVideo.current.play().catch(err => {
+        console.warn("Video auto-play prevented by browser policy:", err);
+      });
+    }
+  }, [remoteStream, userVideo, callAccepted]);
 
   // Handle remote participant join notification toast
   useEffect(() => {
@@ -107,6 +119,7 @@ export default function VideoPlayer({ meetingSettings }) {
     sendMessage(messageInput.trim());
     setMessageInput('');
   };
+
   const copyMeetingLink = () => {
     let linkToCopy = window.location.href;
     
@@ -120,6 +133,7 @@ export default function VideoPlayer({ meetingSettings }) {
     setShowMoreMenu(false);
     setTimeout(() => setCopied(false), 2000);
   };
+
   const getInitials = (n) => n ? n.charAt(0).toUpperCase() : 'U';
 
   const visibleMessages = messages.filter(msg => msg.text && !msg.text.startsWith('EMOJI_PAYLOAD:'));
@@ -188,6 +202,7 @@ export default function VideoPlayer({ meetingSettings }) {
             {/* REMOTE VIDEO TILE */}
             {callAccepted && !callEnded && (
               <div className="relative bg-[#131826] rounded-2xl md:rounded-[24px] overflow-hidden shadow-2xl flex items-center justify-center w-full md:w-1/2 h-1/2 md:h-full max-h-full aspect-video md:aspect-auto">
+                 {/* 🔥 Ensure the remote video tag is here and referenced properly */}
                  <video playsInline ref={userVideo} autoPlay className="w-full h-full object-cover" />
                 
                 <div className="absolute bottom-3 left-3 md:bottom-5 md:left-5 bg-[#0b101e]/70 backdrop-blur-md px-2 md:px-3.5 py-1.5 md:py-2 rounded-lg md:rounded-xl flex items-center gap-2 border border-white/5">

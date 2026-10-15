@@ -3,7 +3,7 @@ import { io } from 'socket.io-client';
 import { useUser } from '@clerk/clerk-react';
 import Peer from 'simple-peer';
 
-// 🔥 VITE POLYFILLS: Prevents simple-peer from silently crashing
+// VITE POLYFILLS
 if (typeof process === 'undefined') {
   window.process = { env: {} };
 }
@@ -62,10 +62,6 @@ const ContextProvider = ({ children }) => {
     return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
-  // =====================================
-  // CALL LOGIC
-  // =====================================
-
   const answerCall = () => {
     setCallAccepted(true);
     setCallEnded(false);
@@ -82,6 +78,7 @@ const ContextProvider = ({ children }) => {
     });
 
     peer.on('stream', (incomingStream) => {
+      console.log("Remote stream received!");
       setRemoteStream(incomingStream);
     });
 
@@ -131,6 +128,7 @@ const ContextProvider = ({ children }) => {
     });
 
     peer.on('stream', (incomingStream) => {
+      console.log("Remote stream received!");
       setRemoteStream(incomingStream);
     });
 
@@ -165,23 +163,24 @@ const ContextProvider = ({ children }) => {
 
   fnsRef.current = { callUser, answerCall };
 
-  // Auto-Answer Listener
+  // 🔥 FIX 1: The Race Condition Killer
+  // Wait until `stream` is actively populated by the camera before answering!
   useEffect(() => {
     if (call.isReceivedCall && !callAccepted && !callEnded && call.signal) {
-      fnsRef.current.answerCall();
+      if (stream || cameraError) {
+        console.log("Camera is active. Answering the call now...");
+        fnsRef.current.answerCall();
+      } else {
+        console.log("Call received, waiting for camera permissions...");
+      }
     }
-  }, [call, callAccepted, callEnded]);
+  }, [call, callAccepted, callEnded, stream, cameraError]); 
 
-
-  // =====================================
-  // INITIALIZATION & RACE-CONDITION FIX
-  // =====================================
 
   useEffect(() => {
     let isMounted = true; 
     const roomToJoin = inviteId || user?.id || socket.id;
 
-    // 🔥 FIX: Secure the camera FIRST before joining the room
     navigator.mediaDevices.getUserMedia({ video: true, audio: true })
       .then((currentStream) => {
         if (!isMounted) return;
@@ -189,7 +188,6 @@ const ContextProvider = ({ children }) => {
         setStream(currentStream);
         setCameraError(false);
 
-        // Tell the server we are ready ONLY after camera is on
         if (socket.connected) {
           socket.emit("joinRoom", { roomId: roomToJoin });
         }
@@ -200,11 +198,9 @@ const ContextProvider = ({ children }) => {
         if (socket.connected) socket.emit("joinRoom", { roomId: roomToJoin });
       });
 
-    // SOCKET LISTENERS
     socket.on('connect', () => {
       setIsConnected(true);
       setMe(socket.id);
-      // If reconnecting and stream is already fetched, join immediately
       if (streamRef.current || cameraError) {
         socket.emit("joinRoom", { roomId: roomToJoin });
       }
@@ -214,10 +210,8 @@ const ContextProvider = ({ children }) => {
       setMe(id);
     });
 
-    // Auto-Dial when someone joins
     socket.on('peerJoined', ({ socketId }) => {
       console.log("Peer joined. Stabilizing before dial...");
-      // 🔥 FIX: 500ms delay to ensure the guest's state is fully initialized
       setTimeout(() => {
         fnsRef.current.callUser(socketId);
       }, 500);
@@ -280,10 +274,6 @@ const ContextProvider = ({ children }) => {
     };
   }, [user, inviteId]);
 
-  // =====================================
-  // HARDWARE CONTROLS
-  // =====================================
-  
   const sendMessage = (text) => {
     const msgObj = { text, sender: user?.firstName || 'Aman', time: getFormattedTime() };
     setMessages((prev) => [...prev, { ...msgObj, sender: 'You' }]);
