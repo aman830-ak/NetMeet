@@ -7,7 +7,7 @@ import LandingPage from './pages/LandingPage';
 import Dashboard from './pages/Dashboard';
 import VideoPlayer from './components/VideoPlayer';
 import PreJoinLobby from './components/PreJoinLobby';
-import NotFound from './pages/NotFound';
+import NotFound from './components/NotFound'; // 🔥 Fixed import path
 import Privacy from './pages/Privacy';
 import ThankYou from './pages/ThankYou';
 import YouLeft from './pages/YouLeft';
